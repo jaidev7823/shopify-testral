@@ -25,6 +25,7 @@ export default function App() {
           <s-link href="/app">Home</s-link>
           <s-link href="/app/additional">Additional page</s-link>
           <s-link href="/app/resources">Resources</s-link>
+          <s-link href="/app/snapshot">Snapshot</s-link>
         </s-app-nav>
         <Outlet />
       </PolarisProvider>
