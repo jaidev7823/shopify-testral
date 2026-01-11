@@ -59,5 +59,9 @@ model SnapshotAnchor {
 
 enum SnapshotStatus {
   PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
   APPROVED
+  REGRESSION
 }
