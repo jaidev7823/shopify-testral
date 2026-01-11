@@ -146,6 +146,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       await takeSnapshots({
         pages,
         outputDir,
+        password: "123",
       });
     } catch (error) {
       console.error("Error taking snapshots:", error);

@@ -32,3 +32,32 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model SnapshotRun {
+  id           String   @id @default(uuid())
+  storeId      String
+  snapshotKey  String
+  status       SnapshotStatus @default(PENDING)
+  createdAt    DateTime @default(now())
+  pages        SnapshotPage[]
+}
+
+model SnapshotPage {
+  id            String   @id @default(uuid())
+  snapshotRunId String
+  pageName      String
+  pageUrl       String
+  imagePath     String
+  snapshotRun   SnapshotRun @relation(fields: [snapshotRunId], references: [id])
+}
+
+model SnapshotAnchor {
+  storeId       String @id
+  snapshotRunId String
+  updatedAt     DateTime @default(now())
+}
+
+enum SnapshotStatus {
+  PENDING
+  APPROVED
+}
