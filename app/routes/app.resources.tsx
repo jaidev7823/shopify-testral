@@ -1,233 +1,156 @@
-import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher } from "@remix-run/react";
+import { data, useFetcher } from "react-router";
 import { authenticate } from "~/shopify.server";
-import { useState } from "react";
-import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
+import { useState, useCallback } from "react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import {
+  Page,
+  Layout,
+  Card,
+  Button,
+  DataTable,
+  Tabs,
+  Badge,
+  Banner,
+  BlockStack,
+  Box,
+  Text,
+} from "@shopify/polaris";
 
-type ResourceResult = {
-  nodes: any[];
-  pageInfo?: {
-    hasNextPage: boolean;
-  };
-};
+type ResourceKey = "products" | "collections" | "pages" | "blogs";
 
-type ActionData = {
-  data: Record<"products" | "collections" | "pages" | "blogs", ResourceResult>;
-};
-
-
-// ── Loader: only for initial page load (optional) ─────────────────────────────
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
-  return json({ initial: "Ready" });
+  return data({ ok: true });
 };
 
-// ── Action: triggered when button is clicked ────────────────────────────────
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
-
-  const graphql = admin.graphql;
-
-  // You can increase first:50 → 100/250 depending on store size
-  // Real stores with >1000 items need pagination (cursor + loop)
-  const queries = {
-    products: `
-      query GetProducts {
-        products(first: 100) {
-          nodes {
-            id
-            title
-            handle
-            status
-          }
-          pageInfo {
-            hasNextPage
-          }
-        }
-      }
-    `,
-    collections: `
-      query GetCollections {
-        collections(first: 100) {
-          nodes {
-            id
-            title
-            handle
-            updatedAt
-          }
-          pageInfo {
-            hasNextPage
-          }
-        }
-      }
-    `,
-    pages: `
-      query GetPages {
-        pages(first: 100) {
-          nodes {
-            id
-            title
-            handle
-            updatedAt
-          }
-          pageInfo {
-            hasNextPage
-          }
-        }
-      }
-    `,
-    blogs: `
-      query GetBlogs {
-        blogs(first: 100) {
-          nodes {
-            id
-            title
-            handle
-          }
-          pageInfo {
-            hasNextPage
-          }
-        }
-      }
-    `
+  const queries: Record<ResourceKey, string> = {
+    products: `query { products(first: 100) { nodes { id title handle status } pageInfo { hasNextPage } } }`,
+    collections: `query { collections(first: 100) { nodes { id title handle updatedAt } pageInfo { hasNextPage } } }`,
+    pages: `query { pages(first: 100) { nodes { id title handle updatedAt } pageInfo { hasNextPage } } }`,
+    blogs: `query { blogs(first: 100) { nodes { id title handle } pageInfo { hasNextPage } } }`,
   };
 
-  const results: Record<string, any> = {};
-
-  for (const [key, query] of Object.entries(queries)) {
+  const results: any = {};
+  for (const key of Object.keys(queries) as ResourceKey[]) {
     try {
-      const response = await graphql(query);
-      const json = await response.json();
-      results[key] = json.data?.[key]?.nodes ?? [];
-    } catch (err) {
-      results[key] = { error: (err as Error).message };
+      const res = await admin.graphql(queries[key]);
+      const json = await res.json();
+      results[key] = json.data[key];
+    } catch (e) {
+      results[key] = { nodes: [] };
     }
   }
-
-  return json({ data: results });
+  return data({ data: results });
 };
 
 export default function Resources() {
-  const fetcher = useFetcher<ActionData>();
-  const [activeTab, setActiveTab] = useState<"products" | "collections" | "pages" | "blogs">("products");
+  const fetcher = useFetcher<any>();
+  const [selectedTab, setSelectedTab] = useState(0);
 
+  const resourceKeys: ResourceKey[] = ["products", "collections", "pages", "blogs"];
+  const activeTabKey = resourceKeys[selectedTab];
+  
   const isLoading = fetcher.state !== "idle";
-  const data = fetcher.data?.data;
+  const fetcherData = fetcher.data?.data;
+  const resources = fetcherData?.[activeTabKey];
+
+  const handleTabChange = useCallback(
+    (selectedTabIndex: number) => setSelectedTab(selectedTabIndex),
+    [],
+  );
+
+  const tabs = resourceKeys.map((key) => {
+    const count = fetcherData?.[key]?.nodes?.length;
+    const label = key.charAt(0).toUpperCase() + key.slice(1);
+    return {
+      id: key,
+      content: count !== undefined ? `${label} (${count})` : label,
+      accessibilityLabel: label,
+      panelID: `${key}-panel`,
+    };
+  });
+
+  const headings = getColumns(activeTabKey).map(col => col.toUpperCase());
+  const rows = resources?.nodes.map((item: any) => 
+    getColumns(activeTabKey).map((col) => String(item[col] ?? "—"))
+  ) || [];
 
   return (
-    <div style={{ padding: "2rem", maxWidth: "1200px", margin: "0 auto" }}>
-      <h1>Store Resources Snapshot</h1>
-      <p>Use this view to quickly check current store content.</p>
+    <Page title="Store Resources">
+      <Layout>
+        {/* Top Control Section */}
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="400">
+              <Text as="h2" variant="headingMd">Data Management</Text>
+              <Text as="p" variant="bodyMd">Fetch latest store data for products, collections, pages and blogs.</Text>
+              <fetcher.Form method="post">
+                <Button variant="primary" submit loading={isLoading}>
+                  Load All Resources
+                </Button>
+              </fetcher.Form>
 
-      <fetcher.Form method="post">
-        <button
-          type="submit"
-          disabled={isLoading}
-          style={{
-            padding: "12px 24px",
-            fontSize: "16px",
-            background: isLoading ? "#ccc" : "#2c6ecb",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: isLoading ? "not-allowed" : "pointer",
-            margin: "1.5rem 0"
-          }}
-        >
-          {isLoading ? "Loading..." : "Load All Resources"}
-        </button>
-      </fetcher.Form>
+              {!fetcherData && !isLoading && (
+                <Banner tone="info">
+                  <p>Click "Load All Resources" to begin fetching data from Shopify.</p>
+                </Banner>
+              )}
+            </BlockStack>
+          </Card>
+        </Layout.Section>
 
-      {data && (
-        <>
-          <div style={{ margin: "1.5rem 0", display: "flex", gap: "1rem" }}>
-            {(["products", "collections", "pages", "blogs"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  padding: "8px 16px",
-                  background: activeTab === tab ? "#2c6ecb" : "#eee",
-                  color: activeTab === tab ? "white" : "black",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer"
-                }}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
-          </div>
+        {/* Results Section */}
+        {fetcherData && (
+          <Layout.Section>
+            <Card padding="0">
+              <Tabs tabs={tabs} selected={selectedTab} onSelect={handleTabChange}>
+                <Box padding="400">
+                  <BlockStack gap="400">
+                    <Box paddingBlockStart="200" paddingBlockEnd="200">
+                      <Text as="h3" variant="headingSm">
+                        Showing {activeTabKey}{" "}
+                        {resources?.nodes && (
+                          <Badge tone="info">{String(resources.nodes.length)}</Badge>
+                        )}
+                      </Text>
+                    </Box>
 
-            <TableView
-              title={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
-              items={data[activeTab]?.nodes ?? []}
-              columns={getColumnsForTab(activeTab)}
-              hasNextPage={data[activeTab]?.pageInfo?.hasNextPage}
-            />
+                    {resources?.pageInfo?.hasNextPage && (
+                      <Banner tone="warning">
+                        <p>Your store has more than 100 {activeTabKey}. Only the first 100 are shown.</p>
+                      </Banner>
+                    )}
 
-        </>
-      )}
-    </div>
+                    {resources?.nodes?.length ? (
+                      <DataTable
+                        columnContentTypes={getColumns(activeTabKey).map(() => "text")}
+                        headings={headings}
+                        rows={rows}
+                      />
+                    ) : (
+                      <Banner tone="warning">
+                        <p>No {activeTabKey} found in this store.</p>
+                      </Banner>
+                    )}
+                  </BlockStack>
+                </Box>
+              </Tabs>
+            </Card>
+          </Layout.Section>
+        )}
+      </Layout>
+    </Page>
   );
 }
 
-function TableView({
-  title,
-  items,
-  columns,
-  hasNextPage,
-}: {
-  title: string;
-  items: any[];
-  columns: string[];
-  hasNextPage?: boolean;
-}) {
-  if (items.length === 0) {
-    return <p style={{ color: "#666" }}>No {title.toLowerCase()} found</p>;
-  }
-
-  return (
-    <>
-      <h2>{title} ({items.length})</h2>
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "1rem" }}>
-        <thead>
-          <tr style={{ background: "#f5f5f5" }}>
-            {columns.map((col) => (
-              <th key={col} style={{ padding: "12px", textAlign: "left", borderBottom: "2px solid #ddd" }}>
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, i) => (
-            <tr key={item.id || i} style={{ borderBottom: "1px solid #eee" }}>
-              {columns.map((col) => (
-                <td key={col} style={{ padding: "12px" }}>
-                  {item[col] ?? "—"}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {hasNextPage && (
-        <p style={{ color: "#d32f2f", marginTop: "1rem" }}>
-          → Warning: More items exist (pagination not implemented yet)
-        </p>
-      )}
-    </>
-  );
-}
-
-function getColumnsForTab(tab: string): string[] {
+function getColumns(tab: ResourceKey): string[] {
   switch (tab) {
-    case "products":     return ["id", "title", "handle", "status"];
-    case "collections":  return ["id", "title", "handle", "updatedAt"];
-    case "pages":        return ["id", "title", "handle", "updatedAt"];
-    case "blogs":        return ["id", "title", "handle"];
-    default:             return ["id", "title"];
+    case "products": return ["id", "title", "handle", "status"];
+    case "collections": return ["id", "title", "handle", "updatedAt"];
+    case "pages": return ["id", "title", "handle", "updatedAt"];
+    case "blogs": return ["id", "title", "handle"];
+    default: return [];
   }
 }
