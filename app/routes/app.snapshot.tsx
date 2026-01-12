@@ -101,22 +101,28 @@ export default function SnapshotPage() {
   useEffect(() => {
     const data = statusFetcher.data as any;
     if (!data) return;
-  
+
     if (data.status === "FAILED") {
       setPollingId(null);
       alert(`Snapshot failed:\n${data.errorMessage || "Unknown error"}`);
     }
-  
+
     if (["COMPLETED", "APPROVED"].includes(data.status)) {
       setPollingId(null);
       window.location.reload();
     }
   }, [statusFetcher.data]);
-  
+
   const handleStartCapture = () => {
     fetcher.submit({ categories: JSON.stringify(categories) }, { method: "POST" });
     setModalOpen(false);
   };
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data && fetcher.data.ok && fetcher.data.runId) {
+      setPollingId(fetcher.data.runId);
+    }
+  }, [fetcher.state, fetcher.data]);
 
   return (
     <Page title="Visual Snapshots" primaryAction={{ content: "Take Snapshots", onAction: () => setModalOpen(true) }}>
@@ -183,11 +189,13 @@ async function backgroundProcess(runId: string, pages: any[], outputDir: string,
       await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" as any } });
     }
   } catch (e: any) {
-    await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "FAILED" as any, 
-      errorMessage: e?.message || String(e),
+    await prisma.snapshotRun.update({
+      where: { id: runId }, data: {
+        status: "FAILED" as any,
+        errorMessage: e?.message || String(e),
       },
     });
-  
+
     console.error("Snapshot failed:", e);
-  }  
+  }
 }
