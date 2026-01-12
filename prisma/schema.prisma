@@ -37,6 +37,7 @@ model SnapshotRun {
   id           String   @id @default(uuid())
   storeId      String
   snapshotKey  String
+  errorMessage String? 
   status       SnapshotStatus @default(PENDING)
   createdAt    DateTime @default(now())
   pages        SnapshotPage[]
