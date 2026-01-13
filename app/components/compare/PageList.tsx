@@ -1,26 +1,43 @@
+import { Box, BlockStack, Text, InlineStack, Badge, Card } from "@shopify/polaris";
+
 export default function PageList({ pages }: { pages: any[] }) {
     return (
         <div
             style={{
-                borderRight: "1px solid #e5e7eb",
+                borderRight: "1px solid var(--p-color-border-secondary)",
                 overflowY: "auto",
+                height: "100%",
+                background: "var(--p-color-bg-surface-secondary)",
             }}
         >
-            {pages.map((page) => (
-                <div
-                    key={page.id}
-                    style={{
-                        padding: "12px 16px",
-                        cursor: "pointer",
-                        borderBottom: "1px solid #f1f5f9",
-                    }}
-                >
-                    <div style={{ fontWeight: 500 }}>{page.pageName}</div>
-                    <div style={{ fontSize: 12, color: "#64748b" }}>
-                        {page.pageUrl}
-                    </div>
-                </div>
-            ))}
+            <Box padding="200">
+                <BlockStack gap="100">
+                    {pages.map((page) => (
+                        <div
+                            key={page.id}
+                            style={{ cursor: "pointer" }}
+                            onClick={() => console.log(page.id)}
+                        >
+                            <Card>
+                                <BlockStack gap="100">
+                                    <InlineStack align="space-between" blockAlign="center">
+                                        <Text variant="headingSm" as="h6">
+                                            {page.pageName}
+                                        </Text>
+                                        {/* Placeholder status - normally this would come from the page data */}
+                                        <Badge size="small" tone="success">
+                                            Match
+                                        </Badge>
+                                    </InlineStack>
+                                    <Text variant="bodySm" tone="subdued" as="p" truncate>
+                                        {page.pageUrl}
+                                    </Text>
+                                </BlockStack>
+                            </Card>
+                        </div>
+                    ))}
+                </BlockStack>
+            </Box>
         </div>
     );
 }

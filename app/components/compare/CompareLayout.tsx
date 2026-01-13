@@ -8,7 +8,8 @@ export default function CompareLayout({ run, hasBaseline }: any) {
             style={{
                 height: "100vh",
                 display: "grid",
-                gridTemplateRows: "64px 1fr",
+                gridTemplateRows: "auto 1fr",
+                background: "var(--p-color-bg-surface)",
             }}
         >
             {/* Header */}
@@ -19,7 +20,7 @@ export default function CompareLayout({ run, hasBaseline }: any) {
                 style={{
                     display: "grid",
                     gridTemplateColumns: "280px 1fr",
-                    borderTop: "1px solid #e5e7eb",
+                    overflow: "hidden",
                 }}
             >
                 <PageList pages={run.pages} />

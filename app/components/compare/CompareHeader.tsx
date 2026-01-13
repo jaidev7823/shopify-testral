@@ -1,27 +1,28 @@
+import { InlineStack, Text, Badge } from "@shopify/polaris";
+
 export default function CompareHeader({ run, hasBaseline }: any) {
     return (
         <div
             style={{
-                padding: "0 16px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                borderBottom: "1px solid #e5e7eb",
+                padding: "16px",
+                borderBottom: "1px solid var(--p-color-border-secondary)",
+                background: "var(--p-color-bg-surface)",
             }}
         >
-            <strong>Snapshot Compare</strong>
+            <InlineStack align="space-between" blockAlign="center">
+                <Text variant="headingLg" as="h2">
+                    Snapshot Compare
+                </Text>
 
-            <div style={{ display: "flex", gap: 12, fontSize: 14 }}>
-                <span>Run: {run.id}</span>
-                <span
-                    style={{
-                        color: hasBaseline ? "green" : "red",
-                        fontWeight: 500,
-                    }}
-                >
-                    {hasBaseline ? "Baseline ready" : "No baseline"}
-                </span>
-            </div>
+                <InlineStack gap="300" blockAlign="center">
+                    <Text as="span" tone="subdued">
+                        Run: {run.id}
+                    </Text>
+                    <Badge tone={hasBaseline ? "success" : "critical"}>
+                        {hasBaseline ? "Baseline ready" : "No baseline"}
+                    </Badge>
+                </InlineStack>
+            </InlineStack>
         </div>
     );
 }

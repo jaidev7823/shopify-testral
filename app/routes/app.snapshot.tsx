@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack } from "@shopify/polaris";
@@ -8,6 +8,7 @@ import { createSnapshotDir } from "~/utils/snapshot-paths.server";
 import { getStorePages } from "~/services/snapshot-logic.server";
 import { takeSnapshots } from "~/services/snapshot.server";
 import path from "path";
+
 
 /* ---------------- LOADER & ACTION ---------------- */
 
@@ -47,6 +48,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   await prisma.snapshotPage.createMany({
+
     data: pages.map(p => ({
       snapshotRunId: run.id,
       pageName: p.name,
@@ -75,6 +77,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function SnapshotPage() {
+  const navigate = useNavigate();
   const { runs } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const statusFetcher = useFetcher();
@@ -144,7 +147,7 @@ export default function SnapshotPage() {
               <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
               <IndexTable.Cell>{run.pages.length} Pages</IndexTable.Cell>
               <IndexTable.Cell>
-                <Button size="slim">Compare</Button>
+                <Button size="slim" onClick={() => navigate(`/app/compare/${run.id}`)}>Compare</Button>
               </IndexTable.Cell>
             </IndexTable.Row>
           ))}

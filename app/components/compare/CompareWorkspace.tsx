@@ -5,20 +5,22 @@ export default function CompareWorkspace() {
     return (
         <div
             style={{
-                padding: 16,
                 display: "grid",
-                gridTemplateRows: "48px 1fr",
-                gap: 12,
+                gridTemplateRows: "auto 1fr",
+                height: "100%",
+                overflow: "hidden",
             }}
         >
             <PageActions />
 
             <div
                 style={{
+                    padding: "16px",
                     display: "grid",
                     gridTemplateColumns: "1fr 1fr",
-                    gap: 12,
+                    gap: "16px",
                     height: "100%",
+                    overflowY: "auto",
                 }}
             >
                 <SnapshotPane title="Baseline" />

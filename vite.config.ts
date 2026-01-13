@@ -63,5 +63,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react"],
+    exclude: ["sharp", "resemblejs"],
+  },
+  ssr: {
+    external: ["sharp", "resemblejs"],
   },
 }) satisfies UserConfig;

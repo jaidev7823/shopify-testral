@@ -1,19 +1,24 @@
+import { Button, InlineStack, Text, ButtonGroup } from "@shopify/polaris";
+
 export default function PageActions() {
     return (
         <div
             style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
+                padding: "16px",
+                borderBottom: "1px solid var(--p-color-border-secondary)",
             }}
         >
-            <strong>Homepage</strong>
+            <InlineStack align="space-between" blockAlign="center">
+                <Text variant="headingMd" as="h3">
+                    Homepage
+                </Text>
 
-            <div style={{ display: "flex", gap: 8 }}>
-                <button>Diff</button>
-                <button>Overlay</button>
-                <button>Toggle Grid</button>
-            </div>
+                <ButtonGroup>
+                    <Button>Diff</Button>
+                    <Button>Overlay</Button>
+                    <Button>Toggle Grid</Button>
+                </ButtonGroup>
+            </InlineStack>
         </div>
     );
 }
