@@ -2,7 +2,7 @@ import path from "path";
 import { prisma } from "~/utils/prisma.server";
 import { compareImages } from "~/services/compareImages.server";
 
-const DIFF_THRESHOLD = 0.3;
+const DIFF_THRESHOLD = 0.1;
 
 export async function runCompareJob(
     storeId: string,
