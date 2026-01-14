@@ -1,8 +1,20 @@
+import { useState, useEffect } from "react";
 import CompareHeader from "./CompareHeader";
 import PageList from "./PageList";
 import CompareWorkspace from "./CompareWorkspace";
 
-export default function CompareLayout({ run, hasBaseline }: any) {
+export default function CompareLayout({ pages, run, hasBaseline }: any) {
+    const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+
+    // Default to first page
+    useEffect(() => {
+        if (pages.length > 0 && !selectedPageId) {
+            setSelectedPageId(pages[0].id);
+        }
+    }, [pages, selectedPageId]);
+
+    const selectedPage = pages.find((p: any) => p.id === selectedPageId) || null;
+    console.log(selectedPage)
     return (
         <div
             style={{
@@ -23,8 +35,12 @@ export default function CompareLayout({ run, hasBaseline }: any) {
                     overflow: "hidden",
                 }}
             >
-                <PageList pages={run.pages} />
-                <CompareWorkspace />
+                <PageList
+                    pages={pages}
+                    selectedPageId={selectedPageId}
+                    onSelect={setSelectedPageId}
+                />
+                <CompareWorkspace selectedPage={selectedPage} />
             </div>
         </div>
     );

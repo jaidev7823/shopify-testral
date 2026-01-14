@@ -1,26 +1,42 @@
-import { Card, Text, BlockStack, Box } from "@shopify/polaris";
+// app/components/compare/SnapshotPane.tsx
 
-export default function SnapshotPane({ title }: { title: string }) {
-    // Using a custom container for the image area since Card doesn't have a direct image slot like this
+import { Card, Text, BlockStack } from "@shopify/polaris";
+
+export default function SnapshotPane({
+    title,
+    images,
+}: {
+    title: string;
+    images: string[];
+}) {
     return (
         <Card>
             <BlockStack gap="400">
                 <Text variant="bodyMd" fontWeight="bold" as="h4">
                     {title}
                 </Text>
-                <div
-                    style={{
-                        height: "400px",
-                        background: "var(--p-color-bg-surface-secondary)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderRadius: "var(--p-border-radius-200)",
-                        color: "var(--p-color-text-subdued)",
-                    }}
-                >
-                    Image goes here
-                </div>
+
+                <BlockStack gap="200">
+                    {images.map((image, index) => (
+                        <div
+                            key={index}
+                            style={{
+                                background: "var(--p-color-bg-surface-secondary)",
+                                borderRadius: "var(--p-border-radius-200)",
+                                overflow: "hidden",
+                            }}
+                        >
+                            <img
+                                src={image}
+                                alt={`${title}-${index}`}
+                                style={{
+                                    width: "100%",
+                                    display: "block",
+                                }}
+                            />
+                        </div>
+                    ))}
+                </BlockStack>
             </BlockStack>
         </Card>
     );

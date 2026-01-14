@@ -1,3 +1,5 @@
+// app/components/compare/PageActions.tsx
+
 import { Button, InlineStack, Text, ButtonGroup } from "@shopify/polaris";
 
 export default function PageActions() {

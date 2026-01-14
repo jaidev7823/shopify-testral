@@ -1,3 +1,4 @@
+// app/components/compare/CompareHeader.tsx
 import { InlineStack, Text, Badge } from "@shopify/polaris";
 
 export default function CompareHeader({ run, hasBaseline }: any) {

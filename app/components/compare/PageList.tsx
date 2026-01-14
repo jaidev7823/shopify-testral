@@ -1,6 +1,16 @@
+// app/components/compare/PageList.tsx
+
 import { Box, BlockStack, Text, InlineStack, Badge, Card } from "@shopify/polaris";
 
-export default function PageList({ pages }: { pages: any[] }) {
+export default function PageList({
+    pages,
+    selectedPageId,
+    onSelect
+}: {
+    pages: any[],
+    selectedPageId: string | null,
+    onSelect: (id: string) => void
+}) {
     return (
         <div
             style={{
@@ -12,30 +22,42 @@ export default function PageList({ pages }: { pages: any[] }) {
         >
             <Box padding="200">
                 <BlockStack gap="100">
-                    {pages.map((page) => (
-                        <div
-                            key={page.id}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => console.log(page.id)}
-                        >
-                            <Card>
-                                <BlockStack gap="100">
-                                    <InlineStack align="space-between" blockAlign="center">
-                                        <Text variant="headingSm" as="h6">
-                                            {page.pageName}
-                                        </Text>
-                                        {/* Placeholder status - normally this would come from the page data */}
-                                        <Badge size="small" tone="success">
-                                            Match
-                                        </Badge>
-                                    </InlineStack>
-                                    <Text variant="bodySm" tone="subdued" as="p" truncate>
-                                        {page.pageUrl}
-                                    </Text>
-                                </BlockStack>
-                            </Card>
-                        </div>
-                    ))}
+                    {pages.map((page) => {
+                        const isSelected = selectedPageId === page.id;
+                        return (
+                            <div
+                                key={page.id}
+                                style={{
+                                    cursor: "pointer",
+                                    // Basic visual feedback for selection
+                                    opacity: isSelected ? 1 : 0.7
+                                }}
+                                onClick={() => onSelect(page.id)}
+                            >
+                                <div style={{
+                                    border: isSelected ? "2px solid var(--p-color-border-focus)" : "2px solid transparent",
+                                    borderRadius: "var(--p-border-radius-200)"
+                                }}>
+                                    <Card>
+                                        <BlockStack gap="100">
+                                            <InlineStack align="space-between" blockAlign="center">
+                                                <Text variant="headingSm" as="h6">
+                                                    {page.pageName}
+                                                </Text>
+                                                {/* Placeholder status */}
+                                                <Badge size="small" tone="success">
+                                                    Match
+                                                </Badge>
+                                            </InlineStack>
+                                            <Text variant="bodySm" tone="subdued" as="p" truncate>
+                                                {page.pageUrl}
+                                            </Text>
+                                        </BlockStack>
+                                    </Card>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </BlockStack>
             </Box>
         </div>

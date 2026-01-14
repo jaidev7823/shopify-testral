@@ -17,9 +17,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const runId = url.searchParams.get("runId");
 
+  let status: string | null = null;
+
   if (runId) {
-    const run = await prisma.snapshotRun.findUnique({ where: { id: runId }, select: { status: true, errorMessage: true } as any });
-    return { status: run?.status || "PENDING" };
+    const run = await prisma.snapshotRun.findUnique({
+      where: { id: runId },
+      select: { status: true, errorMessage: true },
+    });
+    // Fix: Explicitly cast or assign as string
+    status = run?.status ? String(run.status) : null;
   }
 
   const runs = await prisma.snapshotRun.findMany({
@@ -29,9 +35,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { pages: true },
   });
 
-  return { runs: JSON.parse(JSON.stringify(runs)) }; // Quick way to serialize dates
+  return {
+    runs: JSON.parse(JSON.stringify(runs)),
+    status,
+  };
 };
-
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
