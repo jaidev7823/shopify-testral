@@ -34,14 +34,19 @@ model Session {
 }
 
 model SnapshotRun {
-  id           String   @id @default(uuid())
-  storeId      String
-  snapshotKey  String
-  errorMessage String? 
-  status       SnapshotStatus @default(PENDING)
-  createdAt    DateTime @default(now())
-  pages        SnapshotPage[]
+  id             String   @id @default(uuid())
+  storeId        String
+  snapshotKey    String
+  errorMessage   String?
+  status         SnapshotStatus @default(PENDING)
+
+  compareStatus  CompareStatus @default(NOT_STARTED)
+  comparedWithId String?
+
+  createdAt      DateTime @default(now())
+  pages          SnapshotPage[]
 }
+
 
 model SnapshotPage {
   id            String   @id @default(uuid())
@@ -58,6 +63,34 @@ model SnapshotAnchor {
   updatedAt     DateTime @default(now())
 }
 
+model SnapshotComparison {
+  id              String   @id @default(uuid())
+
+  storeId         String
+
+  baseRunId       String
+  basePageId      String
+
+  targetRunId     String
+  targetPageId    String
+
+  isDifferent     Boolean
+  diffScore       Float?        // resemble mismatch %
+  diffImagePath   String?
+
+  createdAt       DateTime @default(now())
+}
+
+model SnapshotBaseline {
+  storeId   String
+  runId     String
+  isActive  Boolean @default(true)
+
+  @@id([storeId])
+}
+
+
+
 enum SnapshotStatus {
   PENDING
   PROCESSING
@@ -65,4 +98,11 @@ enum SnapshotStatus {
   FAILED
   APPROVED
   REGRESSION
+}
+
+enum CompareStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }
