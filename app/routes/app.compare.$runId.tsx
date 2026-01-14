@@ -2,13 +2,15 @@
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/utils/prisma.server";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import { getSnapshotImageUrl } from "~/utils/snapshotImage";
 import { runCompareJob } from "~/services/compareJob.server";
 
 import CompareLayout from "~/components/compare/CompareLayout";
+import { useEffect } from "react";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
+
     const { session } = await authenticate.admin(request);
     const runId = params.runId;
 
@@ -70,6 +72,34 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             },
         };
     });
+    const hasBaseline = Boolean(anchor);
+    console.log("hasBaseline", hasBaseline);
+    if (
+        hasBaseline &&
+        run.compareStatus === "FAILED" &&
+        (run.status === "COMPLETED" || run.status === "APPROVED")
+    ) {
+        console.log("testing")
+        await prisma.snapshotRun.update({
+            where: { id: runId },
+            data: {
+                compareStatus: "IN_PROGRESS",
+                comparedWithId: anchor!.snapshotRunId,
+            },
+        });
+
+        runCompareJob(
+            session.shop,
+            anchor!.snapshotRunId,
+            runId
+        ).catch(async (e) => {
+            console.error("Compare failed", e);
+            await prisma.snapshotRun.update({
+                where: { id: runId },
+                data: { compareStatus: "FAILED" },
+            });
+        });
+    }
 
     return {
         pages,
@@ -77,7 +107,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         hasBaseline: Boolean(anchor),
     };
 };
-
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
     const { session } = await authenticate.admin(request);
@@ -168,10 +197,24 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return { ok: true };
 };
 
-
-
 export default function CompareRunPage() {
-    const { pages, run, hasBaseline } = useLoaderData<typeof loader>();
+    const initialLoaderData = useLoaderData<typeof loader>();
+    const fetcher = useFetcher<typeof loader>();
+
+    const { pages, run, hasBaseline } = fetcher.data || initialLoaderData;
+
+    const isComparing = run.compareStatus === "IN_PROGRESS";
+
+    useEffect(() => {
+        if (!isComparing) return;
+
+        const interval = setInterval(() => {
+            fetcher.load(window.location.pathname);
+        }, 3000); // Poll every 3 seconds
+
+        return () => clearInterval(interval);
+    }, [isComparing, fetcher]);
+
 
     return <CompareLayout pages={pages} run={run} hasBaseline={hasBaseline} />;
 }

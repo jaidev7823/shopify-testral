@@ -1,7 +1,7 @@
 import path from "path";
 import { prisma } from "~/utils/prisma.server";
 import { compareImages } from "~/services/compareImages.server";
-
+import fs from "fs/promises";
 const DIFF_THRESHOLD = 0.1;
 
 export async function runCompareJob(
@@ -9,17 +9,20 @@ export async function runCompareJob(
     baseRunId: string,
     targetRunId: string
 ) {
+    console.log(baseRunId, "vs", targetRunId);
+
     const baseRun = await prisma.snapshotRun.findUnique({
         where: { id: baseRunId },
         include: { pages: true },
     });
-
+    // console.log(baseRun);
     const targetRun = await prisma.snapshotRun.findUnique({
         where: { id: targetRunId },
         include: { pages: true },
     });
-
+    // console.log(targetRun)
     if (!baseRun || !targetRun) {
+        console.log("found")
         throw new Error("Run not found");
     }
 
@@ -27,12 +30,13 @@ export async function runCompareJob(
     const baseTimestamp = baseRun.createdAt.getTime();
     const targetTimestamp = targetRun.createdAt.getTime();
     const folderName = `${baseTimestamp}_vs_${targetTimestamp}`;
-
+    console.log("folderName", folderName)
     for (const targetPage of targetRun.pages) {
+        // console.log(targetPage)
         const basePage = baseRun.pages.find(
             (p) => p.pageUrl === targetPage.pageUrl
         );
-
+        // console.log("basePage", basePage)
         if (!basePage) continue;
 
         const diffPath = path.join(
@@ -43,25 +47,31 @@ export async function runCompareJob(
             folderName,
             `${targetPage.pageName}.png`
         );
-
+        console.log("diffPath", diffPath)
         const baselineFsPath = path.join(
             process.cwd(),
             "public",
+            "screenshots",
+            storeId,
+            "baseline",
             basePage.imagePath
         );
-
+        console.log("baselineFsPath", baselineFsPath)
         const currentFsPath = path.join(
             process.cwd(),
             "public",
+            "screenshots",
+            storeId,
+            "baseline",
             targetPage.imagePath
         );
-
+        console.log("currentFsPath", currentFsPath)
+        await fs.mkdir(path.dirname(diffPath), { recursive: true });
         const result = await compareImages(
             baselineFsPath,
             currentFsPath,
             diffPath
         );
-
 
         await prisma.snapshotComparison.create({
             data: {

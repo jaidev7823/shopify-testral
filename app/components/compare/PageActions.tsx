@@ -68,9 +68,12 @@ export default function PageActions({
                     >
                         Compare
                     </Button>
-                    <Button>Diff</Button>
-                    <Button>Overlay</Button>
-                    <Button>Toggle Grid</Button>
+                    <Button>
+                        Approve
+                    </Button>
+                    {/* <Button>Diff</Button> */}
+                    {/* <Button>Overlay</Button> */}
+                    {/* <Button>Toggle Grid</Button> */}
                 </ButtonGroup>
             </InlineStack>
         </div>

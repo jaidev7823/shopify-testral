@@ -11,7 +11,7 @@ export function createSnapshotDir(shop: string) {
     process.cwd(),
     "public",
     "screenshots",
-    `store-${shop}`,
+    `${shop}`,
     "baseline",
     timestamp,
   );

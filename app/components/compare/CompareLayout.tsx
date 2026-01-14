@@ -1,3 +1,4 @@
+// app/components/compare/CompareLayout.tsx
 import { useState, useEffect } from "react";
 import CompareHeader from "./CompareHeader";
 import PageList from "./PageList";

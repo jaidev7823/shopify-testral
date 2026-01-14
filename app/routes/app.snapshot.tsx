@@ -1,18 +1,23 @@
 import { useState, useCallback, useEffect } from "react";
 import { useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { redirect } from "@remix-run/node";
 import { authenticate } from "~/shopify.server";
 import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack } from "@shopify/polaris";
 import { prisma } from "~/utils/prisma.server";
 import { createSnapshotDir } from "~/utils/snapshot-paths.server";
 import { getStorePages } from "~/services/snapshot-logic.server";
 import { takeSnapshots } from "~/services/snapshot.server";
+import { runCompareJob } from "~/services/compareJob.server";
+
 import path from "path";
 
 
 /* ---------------- LOADER & ACTION ---------------- */
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  console.log("yeah loader");
+
   const { session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const runId = url.searchParams.get("runId");
@@ -41,8 +46,46 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 export const action = async ({ request }: ActionFunctionArgs) => {
+  console.log("yeah");
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
+  const actionType = formData.get("actionType");
+  console.log(actionType);
+  if (actionType === "run-comparison") {
+    const runId = formData.get("runId") as string;
+    console.log("running comparison", runId);
+
+    const anchor = await prisma.snapshotAnchor.findUnique({
+      where: { storeId: session.shop },
+    });
+    // console.log(anchor);
+    if (!anchor) {
+      // Handle case where there's no baseline
+      // Perhaps redirect with an error message, or handle on the compare page
+      return redirect(`/app/compare/${runId}`);
+    }
+
+    await prisma.snapshotRun.update({
+      where: { id: runId },
+      data: {
+        compareStatus: "IN_PROGRESS",
+        comparedWithId: anchor.snapshotRunId,
+      },
+    });
+
+    runCompareJob(
+      session.shop,
+      anchor.snapshotRunId,
+      runId
+    ).catch(async () => {
+      await prisma.snapshotRun.update({
+        where: { id: runId },
+        data: { compareStatus: "FAILED" },
+      });
+    });
+
+    return redirect(`/app/compare/${runId}`);
+  }
   const categories = JSON.parse(String(formData.get("categories") || "[]"));
 
   if (!categories.length) return { ok: false, error: "Select at least one category" };
@@ -54,14 +97,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const run = await prisma.snapshotRun.create({
     data: { storeId: session.shop, snapshotKey: path.basename(outputDir), status: "PENDING" as any },
   });
+  const publicPath = path
+    .relative(path.join(process.cwd(), "public"), outputDir)
+    .replace(/\\/g, "/");
 
+  console.log("publicPath", publicPath);
   await prisma.snapshotPage.createMany({
 
     data: pages.map(p => ({
       snapshotRunId: run.id,
       pageName: p.name,
       pageUrl: p.url,
-      imagePath: `${path.basename(outputDir)}/${p.name}.png`,
+      imagePath: `${publicPath}/${p.name}.png`,
     })),
   });
 
@@ -88,6 +135,7 @@ export default function SnapshotPage() {
   const navigate = useNavigate();
   const { runs } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
+  const compareFetcher = useFetcher();
   const statusFetcher = useFetcher();
   const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -128,7 +176,13 @@ export default function SnapshotPage() {
     fetcher.submit({ categories: JSON.stringify(categories) }, { method: "POST" });
     setModalOpen(false);
   };
-
+  const handleCompare = (runId: string) => {
+    compareFetcher.submit(
+      { actionType: "run-comparison", runId },
+      { method: "post" }
+    );
+    navigate(`/app/compare/${runId}`);
+  };
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data && fetcher.data.ok && fetcher.data.runId) {
       setPollingId(fetcher.data.runId);
@@ -155,7 +209,13 @@ export default function SnapshotPage() {
               <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
               <IndexTable.Cell>{run.pages.length} Pages</IndexTable.Cell>
               <IndexTable.Cell>
-                <Button size="slim" onClick={() => navigate(`/app/compare/${run.id}`)}>Compare</Button>
+                <compareFetcher.Form method="post">
+                  <input type="hidden" name="actionType" value="run-comparison" />
+                  <input type="hidden" name="runId" value={run.id} />
+                  <Button submit size="slim">
+                    Compared
+                  </Button>
+                </compareFetcher.Form>
               </IndexTable.Cell>
             </IndexTable.Row>
           ))}
