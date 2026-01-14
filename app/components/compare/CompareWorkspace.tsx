@@ -4,9 +4,11 @@ import { useState } from "react";
 import SnapshotPane from "./SnapshotPane";
 import PageActions from "./PageActions";
 
-export default function CompareWorkspace({ selectedPage }: { selectedPage: any | null }) {
-    const [diffImage, setDiffImage] = useState<string | null>(null);
-
+export default function CompareWorkspace({
+    selectedPage,
+}: {
+    selectedPage: any | null;
+}) {
     if (!selectedPage) {
         return (
             <div style={{ padding: "20px", textAlign: "center" }}>
@@ -15,33 +17,39 @@ export default function CompareWorkspace({ selectedPage }: { selectedPage: any |
         );
     }
 
+    const diffImage = selectedPage?.images?.diff ?? null;
+
     return (
         <div
             style={{
                 display: "grid",
-                gridTemplateRows: "auto 1fr",
+                gridTemplateRows: "auto 1fr", // ✅ rows, not columns
                 height: "100%",
                 overflow: "hidden",
             }}
         >
-            <PageActions
-                selectedPage={selectedPage}
-                onDiffGenerated={setDiffImage}
-            />
+            {/* Header / actions */}
+            <PageActions selectedPage={selectedPage} />
 
+            {/* Images */}
             <div
                 style={{
                     padding: "16px",
                     display: "grid",
-                    gridTemplateColumns: diffImage ? "1fr 1fr 1fr" : "1fr 1fr",
+                    gridTemplateColumns: diffImage
+                        ? "1fr 1fr 1fr"
+                        : "1fr 1fr",
                     gap: "16px",
-                    height: "100%",
                     overflowY: "auto",
                 }}
             >
                 <SnapshotPane
                     title="Baseline"
-                    images={selectedPage.images.baseline ? [selectedPage.images.baseline] : []}
+                    images={
+                        selectedPage.images.baseline
+                            ? [selectedPage.images.baseline]
+                            : []
+                    }
                 />
 
                 <SnapshotPane
@@ -50,10 +58,7 @@ export default function CompareWorkspace({ selectedPage }: { selectedPage: any |
                 />
 
                 {diffImage && (
-                    <SnapshotPane
-                        title="Diff"
-                        images={[diffImage]}
-                    />
+                    <SnapshotPane title="Diff" images={[diffImage]} />
                 )}
             </div>
         </div>

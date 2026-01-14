@@ -11,6 +11,7 @@ export default function PageList({
     selectedPageId: string | null,
     onSelect: (id: string) => void
 }) {
+
     return (
         <div
             style={{
@@ -23,6 +24,7 @@ export default function PageList({
             <Box padding="200">
                 <BlockStack gap="100">
                     {pages.map((page) => {
+                        const isDifferent = page.comparison?.isDifferent;
                         const isSelected = selectedPageId === page.id;
                         return (
                             <div
@@ -45,9 +47,14 @@ export default function PageList({
                                                     {page.pageName}
                                                 </Text>
                                                 {/* Placeholder status */}
-                                                <Badge size="small" tone="success">
-                                                    Match
+
+                                                <Badge
+                                                    size="small"
+                                                    tone={isDifferent ? "critical" : "success"}
+                                                >
+                                                    {isDifferent ? "Diff" : "Match"}
                                                 </Badge>
+
                                             </InlineStack>
                                             <Text variant="bodySm" tone="subdued" as="p" truncate>
                                                 {page.pageUrl}

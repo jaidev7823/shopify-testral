@@ -6,10 +6,8 @@ import { useFetcher } from "react-router";
 
 export default function PageActions({
     selectedPage,
-    onDiffGenerated
 }: {
     selectedPage: any | null;
-    onDiffGenerated: (diffPath: string | null) => void;
 }) {
     const [isComparing, setIsComparing] = useState(false);
     const fetcher = useFetcher();
@@ -19,13 +17,13 @@ export default function PageActions({
         if (fetcher.data && fetcher.state === "idle") {
             setIsComparing(false);
 
-            if (fetcher.data.ok && fetcher.data.result?.diffPath) {
-                onDiffGenerated(fetcher.data.result.diffPath);
-            } else if (!fetcher.data.ok) {
-                console.error("Comparison failed:", fetcher.data.error);
-            }
+            // if (fetcher.data.ok && fetcher.data.result?.diffPath) {
+            //     onDiffGenerated(fetcher.data.result.diffPath);
+            // } else if (!fetcher.data.ok) {
+            //     console.error("Comparison failed:", fetcher.data.error);
+            // }
         }
-    }, [fetcher.data, fetcher.state, onDiffGenerated]);
+    }, [fetcher.data, fetcher.state]);
 
     const handleCompare = async () => {
         if (!selectedPage || !selectedPage.images.baseline) {
@@ -66,9 +64,6 @@ export default function PageActions({
                         disabled={!selectedPage?.images.baseline}
                         variant="primary"
                     >
-                        Compare
-                    </Button>
-                    <Button>
                         Approve
                     </Button>
                     {/* <Button>Diff</Button> */}

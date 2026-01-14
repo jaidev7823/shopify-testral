@@ -6,6 +6,11 @@ import CompareWorkspace from "./CompareWorkspace";
 
 export default function CompareLayout({ pages, run, hasBaseline }: any) {
     const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+    const sortedPages = [...pages].sort((a, b) => {
+        const aDiff = a.comparison?.isDifferent ? 1 : 0;
+        const bDiff = b.comparison?.isDifferent ? 1 : 0;
+        return bDiff - aDiff;
+    });
 
     // Default to first page
     useEffect(() => {
@@ -36,10 +41,11 @@ export default function CompareLayout({ pages, run, hasBaseline }: any) {
                 }}
             >
                 <PageList
-                    pages={pages}
+                    pages={sortedPages}
                     selectedPageId={selectedPageId}
                     onSelect={setSelectedPageId}
                 />
+
                 <CompareWorkspace selectedPage={selectedPage} />
             </div>
         </div>

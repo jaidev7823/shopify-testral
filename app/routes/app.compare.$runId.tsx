@@ -5,6 +5,7 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useLoaderData, useFetcher } from "react-router";
 import { getSnapshotImageUrl } from "~/utils/snapshotImage";
 import { runCompareJob } from "~/services/compareJob.server";
+import path from "path";
 
 import CompareLayout from "~/components/compare/CompareLayout";
 import { useEffect } from "react";
@@ -13,6 +14,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
     const { session } = await authenticate.admin(request);
     const runId = params.runId;
+    const comparisons = await prisma.snapshotComparison.findMany({
+        where: {
+            targetRunId: runId,
+        },
+    });
+    const comparisonByTargetPageId = new Map(
+        comparisons.map(c => [c.targetPageId, c])
+    );
 
     if (!runId) {
         throw new Response("Run not found", { status: 404 });
@@ -46,32 +55,45 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     }
 
     const pages = run.pages.map((page) => {
-        const baselinePage = baselinePages.find((p) => p.pageUrl === page.pageUrl);
+        const baselinePage = baselinePages.find(
+            (p) => p.pageUrl === page.pageUrl
+        );
 
-        const baselineImage = baselinePage?.imagePath
-            ? getSnapshotImageUrl({
-                storeId: session.shop,
-                type: "baseline",
-                filename: baselinePage.imagePath,
-            })
-            : null;
-
-        const currentImage = getSnapshotImageUrl({
-            storeId: session.shop,
-            type: "baseline", // do not change this let it be baseline
-            filename: page.imagePath,
-        });
+        const comparison = comparisonByTargetPageId.get(page.id);
 
         return {
             id: page.id,
             pageName: page.pageName,
             pageUrl: page.pageUrl,
+            comparison: comparison
+                ? {
+                    isDifferent: comparison.isDifferent,
+                    diffScore: comparison.diffScore,
+                }
+                : null,
             images: {
-                baseline: baselineImage,
-                current: currentImage,
+                baseline: baselinePage?.imagePath
+                    ? getSnapshotImageUrl({
+                        storeId: session.shop,
+                        type: "baseline",
+                        filename: baselinePage.imagePath,
+                    })
+                    : null,
+                current: getSnapshotImageUrl({
+                    storeId: session.shop,
+                    type: "baseline",
+                    filename: page.imagePath,
+                }),
+                diff: comparison?.diffImagePath
+                    ? comparison.diffImagePath.replace(
+                        path.join(process.cwd(), "public"),
+                        ""
+                    )
+                    : null,
             },
         };
     });
+
     const hasBaseline = Boolean(anchor);
     console.log("hasBaseline", hasBaseline);
     if (
