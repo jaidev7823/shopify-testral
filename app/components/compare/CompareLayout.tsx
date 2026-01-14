@@ -14,7 +14,6 @@ export default function CompareLayout({ pages, run, hasBaseline }: any) {
     }, [pages, selectedPageId]);
 
     const selectedPage = pages.find((p: any) => p.id === selectedPageId) || null;
-    console.log(selectedPage)
     return (
         <div
             style={{

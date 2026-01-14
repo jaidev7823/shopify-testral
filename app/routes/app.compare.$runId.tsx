@@ -95,6 +95,46 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         throw new Response("Not found", { status: 404 });
     }
 
+    const formData = await request.formData();
+    const actionType = formData.get("action");
+
+    // Handle individual page comparison
+    if (actionType === "compare") {
+        const pageId = formData.get("pageId") as string;
+        const pageName = formData.get("pageName") as string;
+        const baselineImage = formData.get("baselineImage") as string;
+        const currentImage = formData.get("currentImage") as string;
+
+        const anchor = await prisma.snapshotAnchor.findUnique({
+            where: { storeId: session.shop },
+        });
+
+        if (!anchor) {
+            return { ok: false, error: "No baseline set" };
+        }
+
+        // Import the comparison service
+        const { compareSinglePage } = await import("~/services/compareJob.server");
+
+        try {
+            const result = await compareSinglePage({
+                storeId: session.shop,
+                baseRunId: anchor.snapshotRunId,
+                targetRunId: runId,
+                pageId,
+                pageName,
+                baselineImage,
+                currentImage,
+            });
+
+            return { ok: true, result };
+        } catch (error) {
+            console.error("Comparison error:", error);
+            return { ok: false, error: "Comparison failed" };
+        }
+    }
+
+    // Handle full run comparison (existing logic)
     const anchor = await prisma.snapshotAnchor.findUnique({
         where: { storeId: session.shop },
     });
