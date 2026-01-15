@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
-import { useFetcher, useLoaderData, useNavigate } from "react-router";
+import { json, redirect } from "@remix-run/node";
+import { useFetcher, useLoaderData, useNavigate, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import { redirect } from "@remix-run/node";
 import { authenticate } from "~/shopify.server";
 import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack } from "@shopify/polaris";
 import { prisma } from "~/utils/prisma.server";
@@ -9,85 +9,58 @@ import { createSnapshotDir } from "~/utils/snapshot-paths.server";
 import { getStorePages } from "~/services/snapshot-logic.server";
 import { takeSnapshots } from "~/services/snapshot.server";
 import { runCompareJob } from "~/services/compareJob.server";
-
 import path from "path";
 
-
-/* ---------------- LOADER & ACTION ---------------- */
-
+/* ---------------- LOADER & ACTION (Omitted for brevity, keep yours as is) ---------------- */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  console.log("yeah loader");
-
   const { session } = await authenticate.admin(request);
+  const shop = session.shop;
   const url = new URL(request.url);
   const runId = url.searchParams.get("runId");
-
-  let status: string | null = null;
 
   if (runId) {
     const run = await prisma.snapshotRun.findUnique({
       where: { id: runId },
       select: { status: true, errorMessage: true },
     });
-    // Fix: Explicitly cast or assign as string
-    status = run?.status ? String(run.status) : null;
+    return json({ status: run?.status || null, errorMessage: run?.errorMessage || null });
   }
 
   const runs = await prisma.snapshotRun.findMany({
-    where: { storeId: session.shop },
+    where: { storeId: shop },
     orderBy: { createdAt: "desc" },
     take: 10,
-    include: { pages: true },
+    include: { pages: { select: { id: true } } },
   });
 
-  return {
-    runs: JSON.parse(JSON.stringify(runs)),
-    status,
-  };
+  return json({ runs: JSON.parse(JSON.stringify(runs)), status: null, errorMessage: null });
 };
+
 export const action = async ({ request }: ActionFunctionArgs) => {
-  console.log("yeah");
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
-  console.log(actionType);
+
   if (actionType === "run-comparison") {
     const runId = formData.get("runId") as string;
-    console.log("running comparison", runId);
-
     const anchor = await prisma.snapshotAnchor.findUnique({
       where: { storeId: session.shop },
     });
-    // console.log(anchor);
-    if (!anchor) {
-      // Handle case where there's no baseline
-      // Perhaps redirect with an error message, or handle on the compare page
-      return redirect(`/app/compare/${runId}`);
-    }
+    if (!anchor) return redirect(`/app/compare/${runId}`);
 
     await prisma.snapshotRun.update({
       where: { id: runId },
-      data: {
-        compareStatus: "IN_PROGRESS",
-        comparedWithId: anchor.snapshotRunId,
-      },
+      data: { compareStatus: "IN_PROGRESS", comparedWithId: anchor.snapshotRunId },
     });
 
-    runCompareJob(
-      session.shop,
-      anchor.snapshotRunId,
-      runId
-    ).catch(async () => {
-      await prisma.snapshotRun.update({
-        where: { id: runId },
-        data: { compareStatus: "FAILED" },
-      });
+    runCompareJob(session.shop, anchor.snapshotRunId, runId).catch(async () => {
+      await prisma.snapshotRun.update({ where: { id: runId }, data: { compareStatus: "FAILED" } });
     });
 
     return redirect(`/app/compare/${runId}`);
   }
-  const categories = JSON.parse(String(formData.get("categories") || "[]"));
 
+  const categories = JSON.parse(String(formData.get("categories") || "[]"));
   if (!categories.length) return { ok: false, error: "Select at least one category" };
 
   const pages = await getStorePages(admin, categories, `https://${session.shop}`);
@@ -97,13 +70,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const run = await prisma.snapshotRun.create({
     data: { storeId: session.shop, snapshotKey: path.basename(outputDir), status: "PENDING" as any },
   });
-  const publicPath = path
-    .relative(path.join(process.cwd(), "public"), outputDir)
-    .replace(/\\/g, "/");
 
-  console.log("publicPath", publicPath);
+  const publicPath = path.relative(path.join(process.cwd(), "public"), outputDir).replace(/\\/g, "/");
+
   await prisma.snapshotPage.createMany({
-
     data: pages.map(p => ({
       snapshotRunId: run.id,
       pageName: p.name,
@@ -112,9 +82,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     })),
   });
 
-  // Background trigger (non-blocking)
   backgroundProcess(run.id, pages, outputDir, session.shop).catch(console.error);
-
   return { ok: true, count: pages.length, runId: run.id };
 };
 
@@ -123,21 +91,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 const StatusBadge = ({ status }: { status: string }) => {
   const config: Record<string, { tone: any; label: string }> = {
     APPROVED: { tone: "success", label: "Approved" },
-    COMPLETED: { tone: "warning", label: "Completed" },
-    PROCESSING: { tone: "info", label: "Processing..." },
+    COMPLETED: { tone: "info", label: "Completed" },
+    PROCESSING: { tone: "warning", label: "You can refresh the page to see the status" },
     FAILED: { tone: "critical", label: "Failed" },
   };
-  const { tone, label } = config[status] || { tone: "warning", label: "Pending" };
+  const { tone, label } = config[status] || { tone: "warning", label: "You can refresh the page to see the status" };
   return <Badge tone={tone}>{label}</Badge>;
 };
 
 export default function SnapshotPage() {
   const navigate = useNavigate();
-  const { runs } = useLoaderData<typeof loader>();
+  const { runs: initialRuns = [] } = useLoaderData<typeof loader>() as { runs: any[] };
+  const revalidator = useRevalidator(); // Initialize revalidator
+  const [runs, setRuns] = useState(initialRuns);
+  const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
+  const [modalOpen, setModalOpen] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [pollingId, setPollingId] = useState<string | null>(null);
+
   const fetcher = useFetcher<typeof action>();
   const compareFetcher = useFetcher();
   const statusFetcher = useFetcher();
-  const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
+
+  // 1. Sync local state with loader data (Remix Revalidation)
+  useEffect(() => {
+    setRuns(initialRuns);
+  }, [initialRuns]);
+
+  // 2. Format times
   useEffect(() => {
     const map: Record<string, string> = {};
     for (const run of runs) {
@@ -146,48 +127,62 @@ export default function SnapshotPage() {
     setLocalTimes(map);
   }, [runs]);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [pollingId, setPollingId] = useState<string | null>(null);
+  // 3. Start polling when a new run is created
+  useEffect(() => {
+    const data = fetcher.data as any;
+    // When action succeeds, set the polling ID
+    if (fetcher.state === "idle" && data?.ok && data?.runId) {
+      setPollingId(data.runId);
 
-  // Polling Logic
+      // OPTIONAL: Manually trigger a re-fetch of the main list 
+      // to ensure the new "Pending" run appears in the table immediately
+      statusFetcher.load("?");
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  // 4. Handle Polling Interval
   useEffect(() => {
     if (!pollingId) return;
-    const interval = setInterval(() => statusFetcher.load(`?runId=${pollingId}`), 3000);
+
+    const interval = setInterval(() => {
+      const params = new URLSearchParams(window.location.search);
+      const shop = params.get("shop");
+      // Use index 0 to target the loader
+      statusFetcher.load(`?runId=${pollingId}&shop=${shop}`);
+    }, 3000);
+
     return () => clearInterval(interval);
   }, [pollingId]);
 
+  // 5. THE FIX: Consolidated Status Update Logic
   useEffect(() => {
     const data = statusFetcher.data as any;
-    if (!data) return;
+    if (!data || !pollingId) return;
 
-    if (data.status === "FAILED") {
-      setPollingId(null);
-      alert(`Snapshot failed:\n${data.errorMessage || "Unknown error"}`);
-    }
+    if (data.status) {
+      setRuns((prev) =>
+        prev.map((r) => (r.id === pollingId ? { ...r, status: data.status } : r))
+      );
 
-    if (["COMPLETED", "APPROVED"].includes(data.status)) {
-      setPollingId(null);
-      window.location.reload();
+      if (data.status === "FAILED") {
+        setPollingId(null);
+        alert(`Snapshot failed: ${data.errorMessage || "Unknown error"}`);
+      }
+
+      // Stop polling when finished
+      if (["COMPLETED", "APPROVED"].includes(data.status)) {
+        console.log("revalidating");
+        setPollingId(null);
+
+        revalidator.revalidate();
+      }
     }
-  }, [statusFetcher.data]);
+  }, [statusFetcher.data, pollingId, revalidator]);
 
   const handleStartCapture = () => {
     fetcher.submit({ categories: JSON.stringify(categories) }, { method: "POST" });
     setModalOpen(false);
   };
-  const handleCompare = (runId: string) => {
-    compareFetcher.submit(
-      { actionType: "run-comparison", runId },
-      { method: "post" }
-    );
-    navigate(`/app/compare/${runId}`);
-  };
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data && fetcher.data.ok && fetcher.data.runId) {
-      setPollingId(fetcher.data.runId);
-    }
-  }, [fetcher.state, fetcher.data]);
 
   return (
     <Page title="Visual Snapshots" primaryAction={{ content: "Take Snapshots", onAction: () => setModalOpen(true) }}>
@@ -202,19 +197,18 @@ export default function SnapshotPage() {
             <IndexTable.Row id={run.id} key={run.id} position={i}>
               <IndexTable.Cell>
                 <Text as="span" variant="bodyMd" fontWeight="bold">
-                  {localTimes[run.id] ??
-                    `${run.createdAt.replace("T", " ").slice(0, 16)} UTC`}
+                  {localTimes[run.id] ?? `${run.createdAt.replace("T", " ").slice(0, 16)} UTC`}
                 </Text>
               </IndexTable.Cell>
-              <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
-              <IndexTable.Cell>{run.pages.length} Pages</IndexTable.Cell>
+              <IndexTable.Cell>
+                <StatusBadge status={run.status} />
+              </IndexTable.Cell>
+              <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
                 <compareFetcher.Form method="post">
                   <input type="hidden" name="actionType" value="run-comparison" />
                   <input type="hidden" name="runId" value={run.id} />
-                  <Button submit size="slim">
-                    Compared
-                  </Button>
+                  <Button submit size="slim">Compare</Button>
                 </compareFetcher.Form>
               </IndexTable.Cell>
             </IndexTable.Row>
@@ -245,28 +239,40 @@ export default function SnapshotPage() {
   );
 }
 
-/* ---------------- HELPERS ---------------- */
-
+/* ---------------- BACKGROUND PROCESS ---------------- */
 async function backgroundProcess(runId: string, pages: any[], outputDir: string, shop: string) {
-  await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "PROCESSING" as any } });
   try {
-    await takeSnapshots({ pages, outputDir, password: "123" });
-    await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "COMPLETED" as any } });
-
-    // Auto-approve first run logic...
-    const anchor = await prisma.snapshotAnchor.findUnique({ where: { storeId: shop } });
-    if (!anchor) {
-      await prisma.snapshotAnchor.create({ data: { storeId: shop, snapshotRunId: runId } });
-      await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" as any } });
-    }
-  } catch (e: any) {
     await prisma.snapshotRun.update({
-      where: { id: runId }, data: {
-        status: "FAILED" as any,
-        errorMessage: e?.message || String(e),
-      },
+      where: { id: runId },
+      data: { status: "PROCESSING" }
     });
 
-    console.error("Snapshot failed:", e);
+    await takeSnapshots({ pages, outputDir, password: "123" });
+
+    const anchor = await prisma.snapshotAnchor.findUnique({
+      where: { storeId: shop }
+    });
+
+    if (!anchor) {
+      await prisma.snapshotAnchor.create({
+        data: { storeId: shop, snapshotRunId: runId }
+      });
+      await prisma.snapshotRun.update({
+        where: { id: runId },
+        data: { status: "APPROVED" }
+      });
+    } else {
+      await prisma.snapshotRun.update({
+        where: { id: runId },
+        data: { status: "COMPLETED" }
+      });
+    }
+  } catch (e) {
+    console.error(`[Background] Run ${runId} failed:`, e);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    await prisma.snapshotRun.update({
+      where: { id: runId },
+      data: { status: "FAILED", errorMessage: errorMsg }
+    }).catch(console.error);
   }
 }
