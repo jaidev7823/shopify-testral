@@ -6,14 +6,14 @@ import resemble from "resemblejs";
 
 export interface ComparisonResult {
     mismatch: number;
-    diffPath: string;
+    diffPath: string; // This should be the filesystem path only
     isSameDimensions: boolean;
 }
 
 export async function compareImages(
     baselinePath: string,
     currentPath: string,
-    diffPath: string
+    diffPath: string // This is the FILESYSTEM path where the file is written
 ): Promise<ComparisonResult> {
     // 1. Ensure files exist
     if (!fs.existsSync(baselinePath) || !fs.existsSync(currentPath)) {
@@ -63,9 +63,11 @@ export async function compareImages(
                     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
                     fs.writeFileSync(diffPath, data.getBuffer());
+
+                    // Return the filesystem path that was written
                     resolve({
                         mismatch: Number(data.misMatchPercentage),
-                        diffPath,
+                        diffPath, // This is the filesystem path
                         isSameDimensions: data.isSameDimensions,
                     });
                 } else {

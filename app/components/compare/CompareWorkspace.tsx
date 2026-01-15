@@ -1,12 +1,54 @@
 // app/components/compare/CompareWorkspace.tsx
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import SnapshotPane from "./SnapshotPane";
 import PageActions from "./PageActions";
 
-export default function CompareWorkspace({ selectedPage }: { selectedPage: any | null }) {
+export default function CompareWorkspace({
+    selectedPage,
+    storeId,
+    baseRunId,
+    targetRunId,
+}: {
+    selectedPage: any | null;
+    storeId: string;
+    baseRunId: string;
+    targetRunId: string;
+}) {
     const [diffImage, setDiffImage] = useState<string | null>(null);
-    console.log(diffImage, "diffImage")
+    const [hasDiffImage, setHasDiffImage] = useState<boolean>(false);
+
+    // Fetch comparison data when page changes
+    useEffect(() => {
+        if (!selectedPage) {
+            setDiffImage(null);
+            setHasDiffImage(false);
+            return;
+        }
+
+        // Fetch the latest comparison from the database
+        async function fetchComparison() {
+            try {
+                const response = await fetch(`/api/comparison?pageId=${selectedPage.id}`);
+                const data = await response.json();
+
+                if (data.comparison && data.comparison.diffImagePath) {
+                    setDiffImage(data.comparison.diffImagePath);
+                    setHasDiffImage(true);
+                } else {
+                    setDiffImage(null);
+                    setHasDiffImage(false);
+                }
+            } catch (error) {
+                console.error("Failed to fetch comparison:", error);
+                setDiffImage(null);
+                setHasDiffImage(false);
+            }
+        }
+
+        fetchComparison();
+    }, [selectedPage]);
+
     if (!selectedPage) {
         return (
             <div style={{ padding: "20px", textAlign: "center" }}>
@@ -26,14 +68,20 @@ export default function CompareWorkspace({ selectedPage }: { selectedPage: any |
         >
             <PageActions
                 selectedPage={selectedPage}
-                onDiffGenerated={setDiffImage}
+                storeId={storeId}
+                baseRunId={baseRunId}
+                targetRunId={targetRunId}
+                onDiffGenerated={(path) => {
+                    setDiffImage(path);
+                    setHasDiffImage(!!path);
+                }}
             />
 
             <div
                 style={{
                     padding: "16px",
                     display: "grid",
-                    gridTemplateColumns: diffImage ? "1fr 1fr 1fr" : "1fr 1fr",
+                    gridTemplateColumns: hasDiffImage ? "1fr 1fr 1fr" : "1fr 1fr",
                     gap: "16px",
                     height: "100%",
                     overflowY: "auto",
@@ -49,7 +97,7 @@ export default function CompareWorkspace({ selectedPage }: { selectedPage: any |
                     images={[selectedPage.images.current]}
                 />
 
-                {diffImage && (
+                {hasDiffImage && diffImage && (
                     <SnapshotPane
                         title="Diff"
                         images={[diffImage]}

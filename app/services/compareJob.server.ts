@@ -15,12 +15,12 @@ export async function runCompareJob(
         where: { id: baseRunId },
         include: { pages: true },
     });
-    // console.log(baseRun);
+
     const targetRun = await prisma.snapshotRun.findUnique({
         where: { id: targetRunId },
         include: { pages: true },
     });
-    // console.log(targetRun)
+
     if (!baseRun || !targetRun) {
         console.log("found")
         throw new Error("Run not found");
@@ -31,15 +31,16 @@ export async function runCompareJob(
     const targetTimestamp = targetRun.createdAt.getTime();
     const folderName = `${baseTimestamp}_vs_${targetTimestamp}`;
     console.log("folderName", folderName)
+
     for (const targetPage of targetRun.pages) {
-        // console.log(targetPage)
         const basePage = baseRun.pages.find(
             (p) => p.pageUrl === targetPage.pageUrl
         );
-        // console.log("basePage", basePage)
+
         if (!basePage) continue;
 
-        const diffPath = path.join(
+        // Filesystem path (where to write the file)
+        const diffFsPath = path.join(
             process.cwd(),
             "public",
             "diff",
@@ -47,24 +48,32 @@ export async function runCompareJob(
             folderName,
             `${targetPage.pageName}.png`
         );
-        console.log("diffPath", diffPath)
+
+        // Web-accessible path (for database and URLs)
+        const diffWebPath = `/diff/${storeId}/${folderName}/${targetPage.pageName}.png`;
+
+        console.log("diffFsPath", diffFsPath)
+
         const baselineFsPath = path.join(
             process.cwd(),
             "public",
             basePage.imagePath
         );
         console.log("baselineFsPath", baselineFsPath)
+
         const currentFsPath = path.join(
             process.cwd(),
             "public",
             targetPage.imagePath
         );
         console.log("currentFsPath", currentFsPath)
-        await fs.mkdir(path.dirname(diffPath), { recursive: true });
+
+        await fs.mkdir(path.dirname(diffFsPath), { recursive: true });
+
         const result = await compareImages(
             baselineFsPath,
             currentFsPath,
-            diffPath
+            diffFsPath
         );
 
         await prisma.snapshotComparison.create({
@@ -77,7 +86,7 @@ export async function runCompareJob(
                 isDifferent: result.mismatch > DIFF_THRESHOLD,
                 diffScore: result.mismatch,
                 diffImagePath:
-                    result.mismatch > DIFF_THRESHOLD ? diffPath : null,
+                    result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
             },
         });
     }
@@ -136,7 +145,8 @@ export async function compareSinglePage({
     const baselineFsPath = path.join(process.cwd(), "public", baselinePath);
     const currentFsPath = path.join(process.cwd(), "public", currentPath);
 
-    const diffPath = path.join(
+    // Filesystem path (where to write the file)
+    const diffFsPath = path.join(
         process.cwd(),
         "public",
         "diff",
@@ -145,10 +155,16 @@ export async function compareSinglePage({
         `${pageName}.png`
     );
 
+    // Web-accessible path (for database and URLs)
+    const diffWebPath = `/diff/${storeId}/${folderName}/${pageName}.png`;
+
+    // Create directory if it doesn't exist
+    await fs.mkdir(path.dirname(diffFsPath), { recursive: true });
+
     const result = await compareImages(
         baselineFsPath,
         currentFsPath,
-        diffPath
+        diffFsPath
     );
 
     // Save comparison result to database
@@ -187,7 +203,7 @@ export async function compareSinglePage({
             data: {
                 isDifferent: result.mismatch > DIFF_THRESHOLD,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffPath : null,
+                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
             },
         });
     } else {
@@ -201,7 +217,7 @@ export async function compareSinglePage({
                 targetPageId: pageId,
                 isDifferent: result.mismatch > DIFF_THRESHOLD,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffPath : null,
+                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
             },
         });
     }
@@ -209,6 +225,6 @@ export async function compareSinglePage({
     return {
         mismatch: result.mismatch,
         isDifferent: result.mismatch > DIFF_THRESHOLD,
-        diffPath: result.mismatch > DIFF_THRESHOLD ? `/diff/${storeId}/${folderName}/${pageName}.png` : null,
+        diffPath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
     };
 }

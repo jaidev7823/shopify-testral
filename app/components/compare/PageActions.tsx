@@ -1,14 +1,20 @@
 // app/components/compare/PageActions.tsx
 
-import { Button, InlineStack, Text, ButtonGroup, Banner } from "@shopify/polaris";
+import { Button, InlineStack, Text, ButtonGroup } from "@shopify/polaris";
 import { useState, useEffect } from "react";
 import { useFetcher } from "react-router";
 
 export default function PageActions({
     selectedPage,
+    storeId,
+    baseRunId,
+    targetRunId,
     onDiffGenerated
 }: {
     selectedPage: any | null;
+    storeId: string;
+    baseRunId: string;
+    targetRunId: string;
     onDiffGenerated: (diffPath: string | null) => void;
 }) {
     const [isComparing, setIsComparing] = useState(false);
@@ -16,16 +22,14 @@ export default function PageActions({
 
     // Handle fetcher response
     useEffect(() => {
-        if (fetcher.data && fetcher.state === "idle") {
+        if (fetcher.state === "idle" && fetcher.data?.ok) {
             setIsComparing(false);
-
-            if (fetcher.data.ok && fetcher.data.result?.diffPath) {
-                onDiffGenerated(fetcher.data.result.diffPath);
-            } else if (!fetcher.data.ok) {
-                console.error("Comparison failed:", fetcher.data.error);
-            }
+            onDiffGenerated(fetcher.data.result.diffPath);
+        } else if (fetcher.state === "idle" && fetcher.data && !fetcher.data.ok) {
+            setIsComparing(false);
+            console.error("Comparison failed:", fetcher.data.error);
         }
-    }, [fetcher.data, fetcher.state, onDiffGenerated]);
+    }, [fetcher.state, fetcher.data, onDiffGenerated]);
 
     const handleCompare = async () => {
         if (!selectedPage || !selectedPage.images.baseline) {
@@ -42,8 +46,14 @@ export default function PageActions({
                 pageName: selectedPage.pageName,
                 baselineImage: selectedPage.images.baseline,
                 currentImage: selectedPage.images.current,
+                storeId,
+                baseRunId,
+                targetRunId,
             },
-            { method: "post" }
+            {
+                method: "post",
+                action: ".",
+            }
         );
     };
 
@@ -71,9 +81,6 @@ export default function PageActions({
                     <Button>
                         Approve
                     </Button>
-                    {/* <Button>Diff</Button> */}
-                    {/* <Button>Overlay</Button> */}
-                    {/* <Button>Toggle Grid</Button> */}
                 </ButtonGroup>
             </InlineStack>
         </div>
