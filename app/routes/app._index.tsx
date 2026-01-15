@@ -1,254 +1,272 @@
-import { useEffect } from "react";
-import type {
-  ActionFunctionArgs,
-  HeadersFunction,
-  LoaderFunctionArgs,
-} from "react-router";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
-import { boundary } from "@shopify/shopify-app-react-router/server";
+import { useState, useCallback, useEffect } from "react";
+import { useFetcher, useLoaderData, useNavigate } from "react-router";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { redirect } from "@remix-run/node";
+import { authenticate } from "~/shopify.server";
+import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack } from "@shopify/polaris";
+import { prisma } from "~/utils/prisma.server";
+import { createSnapshotDir } from "~/utils/snapshot-paths.server";
+import { getStorePages } from "~/services/snapshot-logic.server";
+import { takeSnapshots } from "~/services/snapshot.server";
+import { runCompareJob } from "~/services/compareJob.server";
+
+import path from "path";
+
+
+/* ---------------- LOADER & ACTION ---------------- */
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  console.log("yeah loader");
 
-  return null;
-};
+  const { session } = await authenticate.admin(request);
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("runId");
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
-  const color = ["Red", "Orange", "Yellow", "Green"][
-    Math.floor(Math.random() * 4)
-  ];
-  const response = await admin.graphql(
-    `#graphql
-      mutation populateProduct($product: ProductCreateInput!) {
-        productCreate(product: $product) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-    {
-      variables: {
-        product: {
-          title: `${color} Snowboard`,
-        },
-      },
-    },
-  );
-  const responseJson = await response.json();
+  let status: string | null = null;
 
-  const product = responseJson.data!.productCreate!.product!;
-  const variantId = product.variants.edges[0]!.node!.id!;
+  if (runId) {
+    const run = await prisma.snapshotRun.findUnique({
+      where: { id: runId },
+      select: { status: true, errorMessage: true },
+    });
+    // Fix: Explicitly cast or assign as string
+    status = run?.status ? String(run.status) : null;
+  }
 
-  const variantResponse = await admin.graphql(
-    `#graphql
-    mutation shopifyReactRouterTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-    {
-      variables: {
-        productId: product.id,
-        variants: [{ id: variantId, price: "100.00" }],
-      },
-    },
-  );
-
-  const variantResponseJson = await variantResponse.json();
+  const runs = await prisma.snapshotRun.findMany({
+    where: { storeId: session.shop },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    include: { pages: true },
+  });
 
   return {
-    product: responseJson!.data!.productCreate!.product,
-    variant:
-      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+    runs: JSON.parse(JSON.stringify(runs)),
+    status,
   };
 };
+export const action = async ({ request }: ActionFunctionArgs) => {
+  console.log("yeah");
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const actionType = formData.get("actionType");
+  console.log(actionType);
+  if (actionType === "run-comparison") {
+    const runId = formData.get("runId") as string;
+    console.log("running comparison", runId);
 
-export default function Index() {
+    const anchor = await prisma.snapshotAnchor.findUnique({
+      where: { storeId: session.shop },
+    });
+    // console.log(anchor);
+    if (!anchor) {
+      // Handle case where there's no baseline
+      // Perhaps redirect with an error message, or handle on the compare page
+      return redirect(`/app/compare/${runId}`);
+    }
+
+    await prisma.snapshotRun.update({
+      where: { id: runId },
+      data: {
+        compareStatus: "IN_PROGRESS",
+        comparedWithId: anchor.snapshotRunId,
+      },
+    });
+
+    runCompareJob(
+      session.shop,
+      anchor.snapshotRunId,
+      runId
+    ).catch(async () => {
+      await prisma.snapshotRun.update({
+        where: { id: runId },
+        data: { compareStatus: "FAILED" },
+      });
+    });
+
+    return redirect(`/app/compare/${runId}`);
+  }
+  const categories = JSON.parse(String(formData.get("categories") || "[]"));
+
+  if (!categories.length) return { ok: false, error: "Select at least one category" };
+
+  const pages = await getStorePages(admin, categories, `https://${session.shop}`);
+  if (!pages.length) return { ok: false, error: "No pages found" };
+
+  const outputDir = createSnapshotDir(session.shop);
+  const run = await prisma.snapshotRun.create({
+    data: { storeId: session.shop, snapshotKey: path.basename(outputDir), status: "PENDING" as any },
+  });
+  const publicPath = path
+    .relative(path.join(process.cwd(), "public"), outputDir)
+    .replace(/\\/g, "/");
+
+  console.log("publicPath", publicPath);
+  await prisma.snapshotPage.createMany({
+
+    data: pages.map(p => ({
+      snapshotRunId: run.id,
+      pageName: p.name,
+      pageUrl: p.url,
+      imagePath: `${publicPath}/${p.name}.png`,
+    })),
+  });
+
+  // Background trigger (non-blocking)
+  backgroundProcess(run.id, pages, outputDir, session.shop).catch(console.error);
+
+  return { ok: true, count: pages.length, runId: run.id };
+};
+
+/* ---------------- UI COMPONENTS ---------------- */
+
+const StatusBadge = ({ status }: { status: string }) => {
+  const config: Record<string, { tone: any; label: string }> = {
+    APPROVED: { tone: "success", label: "Approved" },
+    COMPLETED: { tone: "warning", label: "Completed" },
+    PROCESSING: { tone: "info", label: "Processing..." },
+    FAILED: { tone: "critical", label: "Failed" },
+  };
+  const { tone, label } = config[status] || { tone: "warning", label: "Pending" };
+  return <Badge tone={tone}>{label}</Badge>;
+};
+
+export default function SnapshotPage() {
+  const navigate = useNavigate();
+  const { runs } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
+  const compareFetcher = useFetcher();
+  const statusFetcher = useFetcher();
+  const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const run of runs) {
+      map[run.id] = new Date(run.createdAt).toLocaleString();
+    }
+    setLocalTimes(map);
+  }, [runs]);
 
-  const shopify = useAppBridge();
-  const isLoading =
-    ["loading", "submitting"].includes(fetcher.state) &&
-    fetcher.formMethod === "POST";
+  const [modalOpen, setModalOpen] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [pollingId, setPollingId] = useState<string | null>(null);
+
+  // Polling Logic
+  useEffect(() => {
+    if (!pollingId) return;
+    const interval = setInterval(() => statusFetcher.load(`?runId=${pollingId}`), 3000);
+    return () => clearInterval(interval);
+  }, [pollingId]);
 
   useEffect(() => {
-    if (fetcher.data?.product?.id) {
-      shopify.toast.show("Product created");
-    }
-  }, [fetcher.data?.product?.id, shopify]);
+    const data = statusFetcher.data as any;
+    if (!data) return;
 
-  const generateProduct = () => fetcher.submit({}, { method: "POST" });
+    if (data.status === "FAILED") {
+      setPollingId(null);
+      alert(`Snapshot failed:\n${data.errorMessage || "Unknown error"}`);
+    }
+
+    if (["COMPLETED", "APPROVED"].includes(data.status)) {
+      setPollingId(null);
+      window.location.reload();
+    }
+  }, [statusFetcher.data]);
+
+  const handleStartCapture = () => {
+    fetcher.submit({ categories: JSON.stringify(categories) }, { method: "POST" });
+    setModalOpen(false);
+  };
+  const handleCompare = (runId: string) => {
+    compareFetcher.submit(
+      { actionType: "run-comparison", runId },
+      { method: "post" }
+    );
+    navigate(`/app/compare/${runId}`);
+  };
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data && fetcher.data.ok && fetcher.data.runId) {
+      setPollingId(fetcher.data.runId);
+    }
+  }, [fetcher.state, fetcher.data]);
 
   return (
-    <s-page heading="Shopify app template">
-      <s-button slot="primary-action" onClick={generateProduct}>
-        Generate a product
-      </s-button>
+    <Page title="Visual Snapshots" primaryAction={{ content: "Take Snapshots", onAction: () => setModalOpen(true) }}>
+      <Card>
+        <IndexTable
+          resourceName={{ singular: "run", plural: "runs" }}
+          itemCount={runs.length}
+          selectable={false}
+          headings={[{ title: "Date" }, { title: "Status" }, { title: "Pages" }, { title: "Actions" }]}
+        >
+          {runs.map((run: any, i: number) => (
+            <IndexTable.Row id={run.id} key={run.id} position={i}>
+              <IndexTable.Cell>
+                <Text as="span" variant="bodyMd" fontWeight="bold">
+                  {localTimes[run.id] ??
+                    `${run.createdAt.replace("T", " ").slice(0, 16)} UTC`}
+                </Text>
+              </IndexTable.Cell>
+              <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
+              <IndexTable.Cell>{run.pages.length} Pages</IndexTable.Cell>
+              <IndexTable.Cell>
+                <compareFetcher.Form method="post">
+                  <input type="hidden" name="actionType" value="run-comparison" />
+                  <input type="hidden" name="runId" value={run.id} />
+                  <Button submit size="slim">
+                    Compared
+                  </Button>
+                </compareFetcher.Form>
+              </IndexTable.Cell>
+            </IndexTable.Row>
+          ))}
+        </IndexTable>
+      </Card>
 
-      <s-section heading="Congrats on creating a new Shopify app 🎉">
-        <s-paragraph>
-          This embedded app template uses{" "}
-          <s-link
-            href="https://shopify.dev/docs/apps/tools/app-bridge"
-            target="_blank"
-          >
-            App Bridge
-          </s-link>{" "}
-          interface examples like an{" "}
-          <s-link href="/app/additional">additional page in the app nav</s-link>
-          , as well as an{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            Admin GraphQL
-          </s-link>{" "}
-          mutation demo, to provide a starting point for app development.
-        </s-paragraph>
-      </s-section>
-      <s-section heading="Get started with products">
-        <s-paragraph>
-          Generate a product with GraphQL and get the JSON output for that
-          product. Learn more about the{" "}
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-            target="_blank"
-          >
-            productCreate
-          </s-link>{" "}
-          mutation in our API references.
-        </s-paragraph>
-        <s-stack direction="inline" gap="base">
-          <s-button
-            onClick={generateProduct}
-            {...(isLoading ? { loading: true } : {})}
-          >
-            Generate a product
-          </s-button>
-          {fetcher.data?.product && (
-            <s-button
-              onClick={() => {
-                shopify.intents.invoke?.("edit:shopify/Product", {
-                  value: fetcher.data?.product?.id,
-                });
-              }}
-              target="_blank"
-              variant="tertiary"
-            >
-              Edit product
-            </s-button>
-          )}
-        </s-stack>
-        {fetcher.data?.product && (
-          <s-section heading="productCreate mutation">
-            <s-stack direction="block" gap="base">
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.product, null, 2)}</code>
-                </pre>
-              </s-box>
-
-              <s-heading>productVariantsBulkUpdate mutation</s-heading>
-              <s-box
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background="subdued"
-              >
-                <pre style={{ margin: 0 }}>
-                  <code>{JSON.stringify(fetcher.data.variant, null, 2)}</code>
-                </pre>
-              </s-box>
-            </s-stack>
-          </s-section>
-        )}
-      </s-section>
-
-      <s-section slot="aside" heading="App template specs">
-        <s-paragraph>
-          <s-text>Framework: </s-text>
-          <s-link href="https://reactrouter.com/" target="_blank">
-            React Router
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Interface: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/app-home/using-polaris-components"
-            target="_blank"
-          >
-            Polaris web components
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>API: </s-text>
-          <s-link
-            href="https://shopify.dev/docs/api/admin-graphql"
-            target="_blank"
-          >
-            GraphQL
-          </s-link>
-        </s-paragraph>
-        <s-paragraph>
-          <s-text>Database: </s-text>
-          <s-link href="https://www.prisma.io/" target="_blank">
-            Prisma
-          </s-link>
-        </s-paragraph>
-      </s-section>
-
-      <s-section slot="aside" heading="Next steps">
-        <s-unordered-list>
-          <s-list-item>
-            Build an{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/getting-started/build-app-example"
-              target="_blank"
-            >
-              example app
-            </s-link>
-          </s-list-item>
-          <s-list-item>
-            Explore Shopify&apos;s API with{" "}
-            <s-link
-              href="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-              target="_blank"
-            >
-              GraphiQL
-            </s-link>
-          </s-list-item>
-        </s-unordered-list>
-      </s-section>
-    </s-page>
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Select Categories"
+        primaryAction={{ content: "Start", onAction: handleStartCapture, loading: fetcher.state === "submitting" }}
+      >
+        <Modal.Section>
+          <BlockStack gap="200">
+            {["homepage", "products", "collections", "pages"].map((cat) => (
+              <Checkbox
+                key={cat}
+                label={cat.charAt(0).toUpperCase() + cat.slice(1)}
+                checked={categories.includes(cat)}
+                onChange={() => setCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])}
+              />
+            ))}
+          </BlockStack>
+        </Modal.Section>
+      </Modal>
+    </Page>
   );
 }
 
-export const headers: HeadersFunction = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
+/* ---------------- HELPERS ---------------- */
+
+async function backgroundProcess(runId: string, pages: any[], outputDir: string, shop: string) {
+  await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "PROCESSING" as any } });
+  try {
+    await takeSnapshots({ pages, outputDir, password: "123" });
+    await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "COMPLETED" as any } });
+
+    // Auto-approve first run logic...
+    const anchor = await prisma.snapshotAnchor.findUnique({ where: { storeId: shop } });
+    if (!anchor) {
+      await prisma.snapshotAnchor.create({ data: { storeId: shop, snapshotRunId: runId } });
+      await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" as any } });
+    }
+  } catch (e: any) {
+    await prisma.snapshotRun.update({
+      where: { id: runId }, data: {
+        status: "FAILED" as any,
+        errorMessage: e?.message || String(e),
+      },
+    });
+
+    console.error("Snapshot failed:", e);
+  }
+}
