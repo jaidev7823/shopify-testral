@@ -6,7 +6,7 @@ import PageActions from "./PageActions";
 
 export default function CompareWorkspace({ selectedPage }: { selectedPage: any | null }) {
     const [diffImage, setDiffImage] = useState<string | null>(null);
-
+    console.log(diffImage, "diffImage")
     if (!selectedPage) {
         return (
             <div style={{ padding: "20px", textAlign: "center" }}>

@@ -9,11 +9,6 @@ export function createSnapshotDir(shop: string) {
 
   const dir = path.join(
     process.cwd(),
-    "public",
-    "screenshots",
-    `${shop}`,
-    "baseline",
-    timestamp,
   );
 
   fs.mkdirSync(dir, { recursive: true });

@@ -10,5 +10,5 @@ export function getSnapshotImageUrl({
     type: SnapshotImageType;
     filename: string;
 }) {
-    return `/screenshots/${storeId}/${type}/${filename}`;
+    return `/${filename}`;
 }

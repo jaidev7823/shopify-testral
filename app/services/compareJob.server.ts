@@ -2,7 +2,7 @@ import path from "path";
 import { prisma } from "~/utils/prisma.server";
 import { compareImages } from "~/services/compareImages.server";
 import fs from "fs/promises";
-const DIFF_THRESHOLD = 0.1;
+const DIFF_THRESHOLD = 0.01;
 
 export async function runCompareJob(
     storeId: string,
@@ -51,18 +51,12 @@ export async function runCompareJob(
         const baselineFsPath = path.join(
             process.cwd(),
             "public",
-            "screenshots",
-            storeId,
-            "baseline",
             basePage.imagePath
         );
         console.log("baselineFsPath", baselineFsPath)
         const currentFsPath = path.join(
             process.cwd(),
             "public",
-            "screenshots",
-            storeId,
-            "baseline",
             targetPage.imagePath
         );
         console.log("currentFsPath", currentFsPath)
