@@ -12,7 +12,7 @@ export async function takeSnapshots({
 }) {
   // 1. Launch with aggressive cache disabling flags
   const browser = await chromium.launch({
-    headless: true, // Set to true for stability, change to false ONLY for debugging
+    headless: false, // Set to true for stability, change to false ONLY for debugging
     args: [
       '--disable-http-cache',
       '--disable-cache',

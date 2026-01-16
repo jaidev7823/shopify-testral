@@ -43,17 +43,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (actionType === "run-comparison") {
     const runId = formData.get("runId") as string;
-    const anchor = await prisma.snapshotAnchor.findUnique({
-      where: { storeId: session.shop },
-    });
-    if (!anchor) return redirect(`/app/compare/${runId}`);
+
+    // With Gold Master architecture, we don't need a specific "Anchor".
+    // We just trigger the comparison against available baselines.
 
     await prisma.snapshotRun.update({
       where: { id: runId },
-      data: { compareStatus: "IN_PROGRESS", comparedWithId: anchor.snapshotRunId },
+      data: { compareStatus: "IN_PROGRESS" },
     });
 
-    runCompareJob(session.shop, anchor.snapshotRunId, runId).catch(async () => {
+    runCompareJob(session.shop, "legacy-placeholder", runId).catch(async () => {
       await prisma.snapshotRun.update({ where: { id: runId }, data: { compareStatus: "FAILED" } });
     });
 
@@ -249,14 +248,47 @@ async function backgroundProcess(runId: string, pages: any[], outputDir: string,
 
     await takeSnapshots({ pages, outputDir, password: "123" });
 
-    const anchor = await prisma.snapshotAnchor.findUnique({
+    // Check if we have ANY baselines for this store.
+    // If count is 0, this is effectively the "First Run" (or a clean start).
+    const baselineCount = await prisma.pageBaseline.count({
       where: { storeId: shop }
     });
 
-    if (!anchor) {
-      await prisma.snapshotAnchor.create({
-        data: { storeId: shop, snapshotRunId: runId }
+    if (baselineCount === 0) {
+      console.log("No baselines found. Initializing Gold Masters from this run...");
+
+      const fs = (await import("fs/promises")).default; // Dynamic import if needed, or rely on top level
+
+      // Get all pages for this run
+      const runPages = await prisma.snapshotPage.findMany({
+        where: { snapshotRunId: runId }
       });
+
+      for (const page of runPages) {
+        const baselineDir = path.join(process.cwd(), "public", "baselines", shop);
+        const baselineFilename = `${page.pageName}.png`;
+        const baselinePath = path.join(baselineDir, baselineFilename);
+        const baselineWebPath = `/baselines/${shop}/${baselineFilename}`;
+        const sourcePath = path.join(process.cwd(), "public", page.imagePath);
+
+        try {
+          await fs.mkdir(baselineDir, { recursive: true });
+          await fs.copyFile(sourcePath, baselinePath);
+
+          await prisma.pageBaseline.create({
+            data: {
+              storeId: shop,
+              pageName: page.pageName,
+              pageUrl: page.pageUrl,
+              snapshotPageId: page.id,
+              imagePath: baselineWebPath
+            }
+          });
+        } catch (err) {
+          console.error(`Failed to create baseline for ${page.pageName}:`, err);
+        }
+      }
+
       await prisma.snapshotRun.update({
         where: { id: runId },
         data: { status: "APPROVED" }

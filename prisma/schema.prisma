@@ -39,9 +39,7 @@ model SnapshotRun {
   snapshotKey    String
   errorMessage   String?
   status         SnapshotStatus @default(PENDING)
-
   compareStatus  CompareStatus @default(NOT_STARTED)
-  comparedWithId String?
 
   createdAt      DateTime @default(now())
   pages          SnapshotPage[]
@@ -57,20 +55,14 @@ model SnapshotPage {
   snapshotRun   SnapshotRun @relation(fields: [snapshotRunId], references: [id])
 }
 
-model SnapshotAnchor {
-  storeId       String @id
-  snapshotRunId String
-  updatedAt     DateTime @default(now())
-}
-
 model SnapshotComparison {
   id              String   @id @default(uuid())
 
   storeId         String
 
-  baseRunId       String
-  basePageId      String
-
+  baseRunId       String? // Optional now, since we compare vs PageBaseline mostly
+  basePageId      String? // Optional
+  
   targetRunId     String
   targetPageId    String
 
@@ -87,12 +79,16 @@ model SnapshotComparison {
   createdAt       DateTime @default(now())
 }
 
-model SnapshotBaseline {
-  storeId   String
-  runId     String
-  isActive  Boolean @default(true)
-
-  @@id([storeId])
+model PageBaseline {
+  id             String        @id @default(uuid())
+  storeId        String
+  pageName       String
+  pageUrl        String
+  snapshotPageId String        // The original SnapshotPage this was taken from
+  imagePath      String        // Path in public/baselines/ folder
+  updatedAt      DateTime      @updatedAt
+  
+  @@unique([storeId, pageName])
 }
 
 

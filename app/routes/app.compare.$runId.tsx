@@ -1,3 +1,5 @@
+import fs from "fs/promises";
+import path from "path";
 // routes/app.compare.$runId.tsx
 import { authenticate } from "~/shopify.server";
 import { prisma } from "~/utils/prisma.server";
@@ -31,38 +33,36 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         throw new Response("Not found", { status: 404 });
     }
 
-    const anchor = await prisma.snapshotAnchor.findUnique({
-        where: { storeId: session.shop },
+    // Fetch active baselines for this store
+    const pageBaselines = await prisma.pageBaseline.findMany({
+        where: { storeId: session.shop }
     });
 
-    let baselinePages: any[] = [];
-
-    if (anchor) {
-        const baselineRun = await prisma.snapshotRun.findUnique({
-            where: { id: anchor.snapshotRunId },
-            include: { pages: true },
-        });
-        baselinePages = baselineRun?.pages ?? [];
-    }
+    const baselinePages: any[] = []; // Legacy fallback disabled/removed
 
     // Fetch all comparisons for this run
-    const comparisons = anchor ? await prisma.snapshotComparison.findMany({
+    const comparisons = await prisma.snapshotComparison.findMany({
         where: {
             targetRunId: runId,
-            baseRunId: anchor.snapshotRunId,
         },
-    }) : [];
+    });
 
     const pages = run.pages.map((page) => {
-        const baselinePage = baselinePages.find((p) => p.pageUrl === page.pageUrl);
+        const pageBaseline = pageBaselines.find(b => b.pageName === page.pageName);
+        const legacyBaselinePage = baselinePages.find((p) => p.pageUrl === page.pageUrl);
 
-        const baselineImage = baselinePage?.imagePath
-            ? getSnapshotImageUrl({
+        let baselineImage = null;
+
+        if (pageBaseline) {
+            // Use the Gold Master image path directly
+            baselineImage = pageBaseline.imagePath;
+        } else if (legacyBaselinePage?.imagePath) {
+            baselineImage = getSnapshotImageUrl({
                 storeId: session.shop,
                 type: "baseline",
-                filename: baselinePage.imagePath,
-            })
-            : null;
+                filename: legacyBaselinePage.imagePath,
+            });
+        }
 
         const currentImage = getSnapshotImageUrl({
             storeId: session.shop,
@@ -92,25 +92,24 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             } : null,
         };
     });
-    const hasBaseline = Boolean(anchor);
-    console.log("hasBaseline", hasBaseline);
+    const hasBaseline = pageBaselines.length > 0;
+
+    // Auto-retry comparison if failed but baselines exist
     if (
         hasBaseline &&
         run.compareStatus === "FAILED" &&
         (run.status === "COMPLETED" || run.status === "APPROVED")
     ) {
-        console.log("testing")
         await prisma.snapshotRun.update({
             where: { id: runId },
             data: {
                 compareStatus: "IN_PROGRESS",
-                comparedWithId: anchor!.snapshotRunId,
             },
         });
 
         runCompareJob(
             session.shop,
-            anchor!.snapshotRunId,
+            "legacy-placeholder",
             runId
         ).catch(async (e) => {
             console.error("Compare failed", e);
@@ -124,7 +123,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     return {
         pages,
         run,
-        hasBaseline: Boolean(anchor),
+        hasBaseline,
     };
 };
 
@@ -150,7 +149,80 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // Handle page approval
     if (actionType === "approve") {
         const comparisonId = formData.get("comparisonId") as string;
+        console.log("Approve action triggered for comparison:", comparisonId);
 
+        // 1. Get the comparison and the target page (the new approved image)
+        const comparison = await prisma.snapshotComparison.findUnique({
+            where: { id: comparisonId }
+        });
+
+        if (!comparison) {
+            console.error("Comparison not found:", comparisonId);
+            return { ok: false, error: "Comparison not found" };
+        }
+
+        const targetPage = await prisma.snapshotPage.findUnique({
+            where: { id: comparison.targetPageId }
+        });
+
+        if (!targetPage) {
+            console.error("Target page not found:", comparison.targetPageId);
+            return { ok: false, error: "Target page not found" };
+        }
+
+        // 2. Define baseline paths
+        // Source: public/snapshots/.../page.png (stored in targetPage.imagePath)
+        const sourcePath = path.join(process.cwd(), "public", targetPage.imagePath);
+
+        // Destination: public/baselines/{storeId}/{pageName}.png
+        const baselineDir = path.join(process.cwd(), "public", "baselines", session.shop);
+        const baselineFilename = `${targetPage.pageName}.png`;
+        const baselinePath = path.join(baselineDir, baselineFilename);
+        const baselineWebPath = `/baselines/${session.shop}/${baselineFilename}`;
+
+        console.log("Source path:", sourcePath);
+        console.log("Baseline path:", baselinePath);
+
+        // 3. Copy file (Create "Gold Master")
+        try {
+            await fs.mkdir(baselineDir, { recursive: true });
+            await fs.copyFile(sourcePath, baselinePath);
+            console.log("File copied successfully");
+        } catch (error) {
+            console.error("Failed to copy baseline image:", error);
+            return { ok: false, error: "Failed to save baseline image" };
+        }
+
+        // 4. Update/Create PageBaseline record
+        try {
+            console.log("Upserting PageBaseline for:", session.shop, targetPage.pageName);
+            const baseline = await prisma.pageBaseline.upsert({
+                where: {
+                    storeId_pageName: {
+                        storeId: session.shop,
+                        pageName: targetPage.pageName
+                    }
+                },
+                update: {
+                    snapshotPageId: targetPage.id,
+                    imagePath: baselineWebPath,
+                    pageUrl: targetPage.pageUrl // Ensure URL is current
+                },
+                create: {
+                    storeId: session.shop,
+                    pageName: targetPage.pageName,
+                    pageUrl: targetPage.pageUrl,
+                    snapshotPageId: targetPage.id,
+                    imagePath: baselineWebPath
+                }
+            });
+            console.log("PageBaseline upserted:", baseline.id);
+        } catch (error) {
+            console.error("Failed to upsert PageBaseline:", error);
+            // Don't fail the whole request, but log it
+        }
+
+        // 5. Mark comparison as approved
         await prisma.snapshotComparison.update({
             where: { id: comparisonId },
             data: {
