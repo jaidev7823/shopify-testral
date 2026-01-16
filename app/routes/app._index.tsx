@@ -91,12 +91,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 const StatusBadge = ({ status }: { status: string }) => {
   const config: Record<string, { tone: any; label: string }> = {
-    APPROVED: { tone: "success", label: "Approved" },
-    COMPLETED: { tone: "info", label: "Completed" },
-    PROCESSING: { tone: "warning", label: "Processing" },
+    APPROVED: { tone: "success", label: "Completed" }, // Changed from "Approved" to "Completed"
+    COMPLETED: { tone: "success", label: "Completed" },
+    PROCESSING: { tone: "warning", label: "Refresh to see update" }, // Updated label
+    PENDING: { tone: "warning", label: "Refresh to see update" },    // Updated label
     FAILED: { tone: "critical", label: "Failed" },
   };
-  const { tone, label } = config[status] || { tone: "warning", label: "Processing" };
+  const { tone, label } = config[status] || { tone: "warning", label: "Refresh to see update" };
   return <Badge tone={tone}>{label}</Badge>;
 };
 
@@ -109,7 +110,6 @@ export default function SnapshotPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [pollingId, setPollingId] = useState<string | null>(null);
 
-  // Gallery state
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [selectedBaselineId, setSelectedBaselineId] = useState<string | null>(null);
 
@@ -199,17 +199,21 @@ export default function SnapshotPage() {
               <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
-                <compareFetcher.Form method="post">
-                  <input type="hidden" name="actionType" value="run-comparison" />
-                  <input type="hidden" name="runId" value={run.id} />
-                  <Button submit size="slim">Compare</Button>
-                </compareFetcher.Form>
+                {/* Only allow comparison if the run is finished */}
+                {["COMPLETED", "APPROVED"].includes(run.status) && (
+                  <compareFetcher.Form method="post">
+                    <input type="hidden" name="actionType" value="run-comparison" />
+                    <input type="hidden" name="runId" value={run.id} />
+                    <Button submit size="slim">Compare</Button>
+                  </compareFetcher.Form>
+                )}
               </IndexTable.Cell>
             </IndexTable.Row>
           ))}
         </IndexTable>
       </Card>
 
+      {/* Main Model for Approval / Gold Masters - Kept Intact */}
       <Modal
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
@@ -217,7 +221,6 @@ export default function SnapshotPage() {
         size="fullScreen"
       >
         <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", height: "calc(100vh - 150px)", overflow: "hidden" }}>
-          {/* Sidebar */}
           <div style={{ borderRight: "1px solid var(--p-color-border-secondary)", overflowY: "auto", background: "var(--p-color-bg-surface-secondary)" }}>
             <Box padding="200">
               <BlockStack gap="100">
@@ -240,14 +243,12 @@ export default function SnapshotPage() {
             </Box>
           </div>
 
-          {/* Main Workspace */}
           <div style={{ padding: "24px", overflowY: "auto", background: "#f1f1f1" }}>
             {selectedBaseline ? (
               <Card>
                 <BlockStack gap="400">
                   <InlineStack align="space-between">
                     <Text variant="headingMd" as="h4">{selectedBaseline.pageName}</Text>
-                    {/* FIXED: Added 'as="p"' here */}
                     <Text variant="bodySm" tone="subdued" as="p">Last Updated: {new Date(selectedBaseline.updatedAt).toLocaleDateString()}</Text>
                   </InlineStack>
                   <div style={{ border: "1px solid #dfe3e8", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
@@ -298,6 +299,7 @@ async function backgroundProcess(runId: string, pages: any[], outputDir: string,
           });
         } catch (err) { console.error(err); }
       }
+      // Note: We keep "APPROVED" status in DB for logic, but UI shows "Completed"
       await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" } });
     } else {
       await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "COMPLETED" } });
