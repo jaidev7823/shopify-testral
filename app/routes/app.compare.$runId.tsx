@@ -45,6 +45,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         baselinePages = baselineRun?.pages ?? [];
     }
 
+    // Fetch all comparisons for this run
+    const comparisons = anchor ? await prisma.snapshotComparison.findMany({
+        where: {
+            targetRunId: runId,
+            baseRunId: anchor.snapshotRunId,
+        },
+    }) : [];
+
     const pages = run.pages.map((page) => {
         const baselinePage = baselinePages.find((p) => p.pageUrl === page.pageUrl);
 
@@ -62,6 +70,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
             filename: page.imagePath,
         });
 
+        // Find comparison data for this page
+        const comparison = comparisons.find((c) => c.targetPageId === page.id);
+
         return {
             id: page.id,
             pageName: page.pageName,
@@ -70,6 +81,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
                 baseline: baselineImage,
                 current: currentImage,
             },
+            comparison: comparison ? {
+                id: comparison.id,
+                isDifferent: comparison.isDifferent,
+                diffScore: comparison.diffScore,
+                diffImagePath: comparison.diffImagePath,
+                approvalStatus: comparison.approvalStatus,
+                approvedBy: comparison.approvedBy,
+                approvedAt: comparison.approvedAt,
+            } : null,
         };
     });
     const hasBaseline = Boolean(anchor);
@@ -126,6 +146,40 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
     const formData = await request.formData();
     const actionType = formData.get("action");
+
+    // Handle page approval
+    if (actionType === "approve") {
+        const comparisonId = formData.get("comparisonId") as string;
+
+        await prisma.snapshotComparison.update({
+            where: { id: comparisonId },
+            data: {
+                approvalStatus: "APPROVED",
+                approvedBy: session.shop,
+                approvedAt: new Date(),
+            },
+        });
+
+        return { ok: true, action: "approved" };
+    }
+
+    // Handle page rejection
+    if (actionType === "reject") {
+        const comparisonId = formData.get("comparisonId") as string;
+        const rejectionReason = formData.get("rejectionReason") as string | null;
+
+        await prisma.snapshotComparison.update({
+            where: { id: comparisonId },
+            data: {
+                approvalStatus: "REJECTED",
+                approvedBy: session.shop,
+                approvedAt: new Date(),
+                rejectionReason: rejectionReason || undefined,
+            },
+        });
+
+        return { ok: true, action: "rejected" };
+    }
 
     // Handle individual page comparison
     if (actionType === "compare") {

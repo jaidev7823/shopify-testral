@@ -1,6 +1,6 @@
 // app/components/compare/PageActions.tsx
 
-import { Button, InlineStack, Text, ButtonGroup } from "@shopify/polaris";
+import { Button, InlineStack, Text, ButtonGroup, Banner, BlockStack } from "@shopify/polaris";
 import { useState, useEffect } from "react";
 import { useFetcher } from "react-router";
 
@@ -18,18 +18,19 @@ export default function PageActions({
     onDiffGenerated: (diffPath: string | null) => void;
 }) {
     const [isComparing, setIsComparing] = useState(false);
-    const fetcher = useFetcher();
+    const compareFetcher = useFetcher();
+    const approvalFetcher = useFetcher();
 
-    // Handle fetcher response
+    // Handle comparison response
     useEffect(() => {
-        if (fetcher.state === "idle" && fetcher.data?.ok) {
+        if (compareFetcher.state === "idle" && compareFetcher.data?.ok) {
             setIsComparing(false);
-            onDiffGenerated(fetcher.data.result.diffPath);
-        } else if (fetcher.state === "idle" && fetcher.data && !fetcher.data.ok) {
+            onDiffGenerated(compareFetcher.data.result.diffPath);
+        } else if (compareFetcher.state === "idle" && compareFetcher.data && !compareFetcher.data.ok) {
             setIsComparing(false);
-            console.error("Comparison failed:", fetcher.data.error);
+            console.error("Comparison failed:", compareFetcher.data.error);
         }
-    }, [fetcher.state, fetcher.data, onDiffGenerated]);
+    }, [compareFetcher.state, compareFetcher.data, onDiffGenerated]);
 
     const handleCompare = async () => {
         if (!selectedPage || !selectedPage.images.baseline) {
@@ -38,8 +39,7 @@ export default function PageActions({
 
         setIsComparing(true);
 
-        // Send comparison request
-        fetcher.submit(
+        compareFetcher.submit(
             {
                 action: "compare",
                 pageId: selectedPage.id,
@@ -57,32 +57,111 @@ export default function PageActions({
         );
     };
 
-    return (
-        <div
-            style={{
-                padding: "16px",
-                borderBottom: "1px solid var(--p-color-border-secondary)",
-            }}
-        >
-            <InlineStack align="space-between" blockAlign="center">
-                <Text variant="headingMd" as="h3">
-                    {selectedPage?.pageName || "Select a page"}
-                </Text>
+    const handleApprove = () => {
+        if (!selectedPage?.comparison?.id) return;
 
-                <ButtonGroup>
-                    <Button
-                        onClick={handleCompare}
-                        loading={isComparing}
-                        disabled={!selectedPage?.images.baseline}
-                        variant="primary"
-                    >
-                        Compare
-                    </Button>
-                    <Button>
-                        Approve
-                    </Button>
-                </ButtonGroup>
-            </InlineStack>
-        </div>
+        approvalFetcher.submit(
+            {
+                action: "approve",
+                comparisonId: selectedPage.comparison.id,
+            },
+            {
+                method: "post",
+                action: ".",
+            }
+        );
+    };
+
+    const handleReject = () => {
+        if (!selectedPage?.comparison?.id) return;
+
+        approvalFetcher.submit(
+            {
+                action: "reject",
+                comparisonId: selectedPage.comparison.id,
+                rejectionReason: "Visual regression detected",
+            },
+            {
+                method: "post",
+                action: ".",
+            }
+        );
+    };
+
+    const approvalStatus = selectedPage?.comparison?.approvalStatus;
+    const isApproved = approvalStatus === "APPROVED";
+    const isRejected = approvalStatus === "REJECTED";
+    const isAutoApproved = approvalStatus === "AUTO_APPROVED";
+    const isPending = approvalStatus === "PENDING";
+
+    return (
+        <BlockStack gap="300">
+            <div
+                style={{
+                    padding: "16px",
+                    borderBottom: "1px solid var(--p-color-border-secondary)",
+                }}
+            >
+                <InlineStack align="space-between" blockAlign="center">
+                    <Text variant="headingMd" as="h3">
+                        {selectedPage?.pageName || "Select a page"}
+                    </Text>
+
+                    <ButtonGroup>
+                        <Button
+                            onClick={handleCompare}
+                            loading={isComparing}
+                            disabled={!selectedPage?.images.baseline}
+                            variant="secondary"
+                        >
+                            Compare
+                        </Button>
+                        <Button
+                            onClick={handleApprove}
+                            loading={approvalFetcher.state === "submitting"}
+                            disabled={!selectedPage?.comparison || isApproved || isAutoApproved}
+                            variant="primary"
+                            tone="success"
+                        >
+                            {isApproved ? "Approved ✓" : "Approve"}
+                        </Button>
+                        <Button
+                            onClick={handleReject}
+                            loading={approvalFetcher.state === "submitting"}
+                            disabled={!selectedPage?.comparison || isRejected}
+                            tone="critical"
+                        >
+                            {isRejected ? "Rejected ✗" : "Reject"}
+                        </Button>
+                    </ButtonGroup>
+                </InlineStack>
+            </div>
+
+            {/* Status Banner */}
+            {selectedPage?.comparison && (
+                <div style={{ padding: "0 16px" }}>
+                    {isApproved && (
+                        <Banner tone="success">
+                            This page has been approved
+                        </Banner>
+                    )}
+                    {isRejected && (
+                        <Banner tone="critical">
+                            This page has been rejected as a visual regression
+                        </Banner>
+                    )}
+                    {isAutoApproved && (
+                        <Banner tone="info">
+                            No visual changes detected - auto-approved
+                        </Banner>
+                    )}
+                    {isPending && selectedPage.comparison.isDifferent && (
+                        <Banner tone="warning">
+                            Visual changes detected ({selectedPage.comparison.diffScore?.toFixed(2)}% difference) - awaiting review
+                        </Banner>
+                    )}
+                </div>
+            )}
+        </BlockStack>
     );
 }

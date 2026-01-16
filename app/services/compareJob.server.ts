@@ -76,6 +76,9 @@ export async function runCompareJob(
             diffFsPath
         );
 
+        const isDifferent = result.mismatch > DIFF_THRESHOLD;
+        const approvalStatus = isDifferent ? "PENDING" : "AUTO_APPROVED";
+
         await prisma.snapshotComparison.create({
             data: {
                 storeId,
@@ -83,10 +86,11 @@ export async function runCompareJob(
                 basePageId: basePage.id,
                 targetRunId,
                 targetPageId: targetPage.id,
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
+                isDifferent,
                 diffScore: result.mismatch,
                 diffImagePath:
-                    result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
+                    isDifferent ? diffWebPath : null,
+                approvalStatus: approvalStatus as any,
             },
         });
     }
@@ -196,14 +200,18 @@ export async function compareSinglePage({
         },
     });
 
+    const isDifferent = result.mismatch > DIFF_THRESHOLD;
+    const approvalStatus = isDifferent ? "PENDING" : "AUTO_APPROVED";
+
     if (existingComparison) {
         // Update existing comparison
         await prisma.snapshotComparison.update({
             where: { id: existingComparison.id },
             data: {
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
+                isDifferent,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
+                diffImagePath: isDifferent ? diffWebPath : null,
+                approvalStatus: approvalStatus as any,
             },
         });
     } else {
@@ -215,9 +223,10 @@ export async function compareSinglePage({
                 basePageId: baselinePage.id,
                 targetRunId,
                 targetPageId: pageId,
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
+                isDifferent,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
+                diffImagePath: isDifferent ? diffWebPath : null,
+                approvalStatus: approvalStatus as any,
             },
         });
     }

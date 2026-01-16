@@ -78,6 +78,12 @@ model SnapshotComparison {
   diffScore       Float?        // resemble mismatch %
   diffImagePath   String?
 
+  // Approval tracking
+  approvalStatus  ApprovalStatus @default(PENDING)
+  approvedBy      String?       // User/session who approved
+  approvedAt      DateTime?
+  rejectionReason String?
+
   createdAt       DateTime @default(now())
 }
 
@@ -105,4 +111,11 @@ enum CompareStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  AUTO_APPROVED
 }
