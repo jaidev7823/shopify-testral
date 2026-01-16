@@ -22,10 +22,7 @@ export default function App() {
       {/* WRAP EVERYTHING IN POLARIS PROVIDER */}
       <PolarisProvider i18n={translations}>
         <s-app-nav>
-          <s-link href="/app">Home</s-link>
-          <s-link href="/app/additional">Additional page</s-link>
-          <s-link href="/app/resources">Resources</s-link>
-          <s-link href="/app/snapshot">Snapshot</s-link>
+          <s-link href="/app">Snapshot</s-link>
         </s-app-nav>
         <Outlet />
       </PolarisProvider>

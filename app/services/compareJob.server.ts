@@ -2,7 +2,7 @@ import path from "path";
 import { prisma } from "~/utils/prisma.server";
 import { compareImages } from "~/services/compareImages.server";
 import fs from "fs/promises";
-const DIFF_THRESHOLD = 0.1;
+const DIFF_THRESHOLD = 0.01;
 
 export async function runCompareJob(
     storeId: string,
@@ -11,35 +11,58 @@ export async function runCompareJob(
 ) {
     console.log(baseRunId, "vs", targetRunId);
 
-    const baseRun = await prisma.snapshotRun.findUnique({
-        where: { id: baseRunId },
-        include: { pages: true },
-    });
-    // console.log(baseRun);
+    let baseRun = null;
+    if (baseRunId !== "legacy-placeholder") {
+        baseRun = await prisma.snapshotRun.findUnique({
+            where: { id: baseRunId },
+            include: { pages: true },
+        });
+    }
+
     const targetRun = await prisma.snapshotRun.findUnique({
         where: { id: targetRunId },
         include: { pages: true },
     });
-    // console.log(targetRun)
-    if (!baseRun || !targetRun) {
-        console.log("found")
+
+    if (!targetRun || (baseRunId !== "legacy-placeholder" && !baseRun)) {
         throw new Error("Run not found");
     }
 
     // Create folder name with timestamps
-    const baseTimestamp = baseRun.createdAt.getTime();
+    const baseTimestamp = baseRun ? baseRun.createdAt.getTime() : "gold_master";
     const targetTimestamp = targetRun.createdAt.getTime();
     const folderName = `${baseTimestamp}_vs_${targetTimestamp}`;
     console.log("folderName", folderName)
-    for (const targetPage of targetRun.pages) {
-        // console.log(targetPage)
-        const basePage = baseRun.pages.find(
-            (p) => p.pageUrl === targetPage.pageUrl
-        );
-        // console.log("basePage", basePage)
-        if (!basePage) continue;
 
-        const diffPath = path.join(
+    // Fetch active baselines for this store
+    console.log(`Fetching baselines for store: ${storeId}`);
+    const pageBaselines = await prisma.pageBaseline.findMany({
+        where: { storeId }
+    });
+    console.log(`Found ${pageBaselines.length} baselines`);
+
+    for (const targetPage of targetRun.pages) {
+        // 1. Try to find a "Gold Master" baseline
+        const baseline = pageBaselines.find(b => b.pageName === targetPage.pageName);
+        console.log(`Processing page: ${targetPage.pageName}. Baseline found: ${!!baseline}`);
+
+        let baselineFsPath: string;
+        let basePageId: string;
+        let effectiveBaseRunId: string;
+
+        if (baseline) {
+            baselineFsPath = path.join(process.cwd(), "public", baseline.imagePath);
+            basePageId = baseline.snapshotPageId;
+            effectiveBaseRunId = baseRunId; // Keep legacy run ID for reference, or could be empty
+        } else {
+            // No baseline found for this page.
+            // In strict Gold Master mode, we skip comparison or mark it as "No Baseline"
+            console.log(`No baseline found for ${targetPage.pageName}. Skipping comparison.`);
+            continue;
+        }
+
+        // Filesystem path (where to write the file)
+        const diffFsPath = path.join(
             process.cwd(),
             "public",
             "diff",
@@ -47,45 +70,49 @@ export async function runCompareJob(
             folderName,
             `${targetPage.pageName}.png`
         );
-        console.log("diffPath", diffPath)
-        const baselineFsPath = path.join(
-            process.cwd(),
-            "public",
-            "screenshots",
-            storeId,
-            "baseline",
-            basePage.imagePath
-        );
-        console.log("baselineFsPath", baselineFsPath)
+
+        // Web-accessible path (for database and URLs)
+        const diffWebPath = `/diff/${storeId}/${folderName}/${targetPage.pageName}.png`;
+
         const currentFsPath = path.join(
             process.cwd(),
             "public",
-            "screenshots",
-            storeId,
-            "baseline",
             targetPage.imagePath
         );
-        console.log("currentFsPath", currentFsPath)
-        await fs.mkdir(path.dirname(diffPath), { recursive: true });
-        const result = await compareImages(
-            baselineFsPath,
-            currentFsPath,
-            diffPath
-        );
 
-        await prisma.snapshotComparison.create({
-            data: {
-                storeId,
-                baseRunId,
-                basePageId: basePage.id,
-                targetRunId,
-                targetPageId: targetPage.id,
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
-                diffScore: result.mismatch,
-                diffImagePath:
-                    result.mismatch > DIFF_THRESHOLD ? diffPath : null,
-            },
-        });
+        console.log("Comparing:", targetPage.pageName);
+        console.log("Baseline:", baselineFsPath);
+        console.log("Current:", currentFsPath);
+
+        try {
+            await fs.mkdir(path.dirname(diffFsPath), { recursive: true });
+
+            const result = await compareImages(
+                baselineFsPath,
+                currentFsPath,
+                diffFsPath
+            );
+
+            const isDifferent = result.mismatch > DIFF_THRESHOLD;
+            const approvalStatus = isDifferent ? "PENDING" : "AUTO_APPROVED";
+
+            await prisma.snapshotComparison.create({
+                data: {
+                    storeId,
+                    baseRunId: effectiveBaseRunId,
+                    basePageId,
+                    targetRunId,
+                    targetPageId: targetPage.id,
+                    isDifferent,
+                    diffScore: result.mismatch,
+                    diffImagePath:
+                        isDifferent ? diffWebPath : null,
+                    approvalStatus: approvalStatus as any,
+                },
+            });
+        } catch (err) {
+            console.error(`Error comparing page ${targetPage.pageName}:`, err);
+        }
     }
 
     await prisma.snapshotRun.update({
@@ -112,20 +139,23 @@ export async function compareSinglePage({
     currentImage: string;
 }) {
     // Get run timestamps
-    const baseRun = await prisma.snapshotRun.findUnique({
-        where: { id: baseRunId },
-    });
+    let baseRun = null;
+    if (baseRunId !== "legacy-placeholder" && baseRunId !== "gold-master") {
+        baseRun = await prisma.snapshotRun.findUnique({
+            where: { id: baseRunId },
+        });
+    }
 
     const targetRun = await prisma.snapshotRun.findUnique({
         where: { id: targetRunId },
     });
 
-    if (!baseRun || !targetRun) {
+    if (!targetRun) {
         throw new Error("Run not found");
     }
 
     // Create folder name with timestamps
-    const baseTimestamp = baseRun.createdAt.getTime();
+    const baseTimestamp = baseRun ? baseRun.createdAt.getTime() : "gold_master";
     const targetTimestamp = targetRun.createdAt.getTime();
     const folderName = `${baseTimestamp}_vs_${targetTimestamp}`;
 
@@ -142,7 +172,8 @@ export async function compareSinglePage({
     const baselineFsPath = path.join(process.cwd(), "public", baselinePath);
     const currentFsPath = path.join(process.cwd(), "public", currentPath);
 
-    const diffPath = path.join(
+    // Filesystem path (where to write the file)
+    const diffFsPath = path.join(
         process.cwd(),
         "public",
         "diff",
@@ -151,10 +182,16 @@ export async function compareSinglePage({
         `${pageName}.png`
     );
 
+    // Web-accessible path (for database and URLs)
+    const diffWebPath = `/diff/${storeId}/${folderName}/${pageName}.png`;
+
+    // Create directory if it doesn't exist
+    await fs.mkdir(path.dirname(diffFsPath), { recursive: true });
+
     const result = await compareImages(
         baselineFsPath,
         currentFsPath,
-        diffPath
+        diffFsPath
     );
 
     // Save comparison result to database
@@ -166,34 +203,43 @@ export async function compareSinglePage({
         throw new Error("Page not found");
     }
 
-    // Find the baseline page
-    const baselinePage = await prisma.snapshotPage.findFirst({
+    // Find the Gold Master baseline
+    const pageBaseline = await prisma.pageBaseline.findUnique({
         where: {
-            snapshotRunId: baseRunId,
-            pageUrl: page.pageUrl,
-        },
+            storeId_pageName: {
+                storeId,
+                pageName: page.pageName
+            }
+        }
     });
 
-    if (!baselinePage) {
-        throw new Error("Baseline page not found");
+    if (!pageBaseline) {
+        throw new Error("Baseline (Gold Master) not found for this page");
     }
+
+    const basePageId = pageBaseline.snapshotPageId;
+    const effectiveBaseRunId = "gold-master"; // Or null, as schema allows optional
 
     // Check if comparison already exists
     const existingComparison = await prisma.snapshotComparison.findFirst({
         where: {
-            basePageId: baselinePage.id,
+            basePageId: basePageId,
             targetPageId: pageId,
         },
     });
+
+    const isDifferent = result.mismatch > DIFF_THRESHOLD;
+    const approvalStatus = isDifferent ? "PENDING" : "AUTO_APPROVED";
 
     if (existingComparison) {
         // Update existing comparison
         await prisma.snapshotComparison.update({
             where: { id: existingComparison.id },
             data: {
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
+                isDifferent,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffPath : null,
+                diffImagePath: isDifferent ? diffWebPath : null,
+                approvalStatus: approvalStatus as any,
             },
         });
     } else {
@@ -201,13 +247,14 @@ export async function compareSinglePage({
         await prisma.snapshotComparison.create({
             data: {
                 storeId,
-                baseRunId,
-                basePageId: baselinePage.id,
+                baseRunId: effectiveBaseRunId,
+                basePageId: basePageId,
                 targetRunId,
                 targetPageId: pageId,
-                isDifferent: result.mismatch > DIFF_THRESHOLD,
+                isDifferent,
                 diffScore: result.mismatch,
-                diffImagePath: result.mismatch > DIFF_THRESHOLD ? diffPath : null,
+                diffImagePath: isDifferent ? diffWebPath : null,
+                approvalStatus: approvalStatus as any,
             },
         });
     }
@@ -215,6 +262,6 @@ export async function compareSinglePage({
     return {
         mismatch: result.mismatch,
         isDifferent: result.mismatch > DIFF_THRESHOLD,
-        diffPath: result.mismatch > DIFF_THRESHOLD ? `/diff/${storeId}/${folderName}/${pageName}.png` : null,
+        diffPath: result.mismatch > DIFF_THRESHOLD ? diffWebPath : null,
     };
 }

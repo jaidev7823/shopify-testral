@@ -1,4 +1,3 @@
-// app/services/snapshot.server.ts
 import { chromium } from "playwright";
 import path from "path";
 
@@ -11,49 +10,83 @@ export async function takeSnapshots({
   outputDir: string;
   password?: string;
 }) {
-  const browser = await chromium.launch({ headless: true });
+  // 1. Launch with aggressive cache disabling flags
+  const browser = await chromium.launch({
+    headless: false, // Set to true for stability, change to false ONLY for debugging
+    args: [
+      '--disable-http-cache',
+      '--disable-cache',
+      '--disk-cache-size=0',
+    ]
+  });
 
+  // 2. Create a totally fresh context for every run
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    deviceScaleFactor: 1,
+    offline: false,
   });
 
-  const page = await context.newPage();
+  try {
+    for (const p of pages) {
+      const page = await context.newPage();
 
-  // 1️⃣ Open homepage first (important)
-  await page.goto(pages[0].url, { waitUntil: "domcontentloaded" });
+      // 3. FORCE the browser to ignore cache for every request
+      await page.route('**/*', (route) => {
+        const headers = {
+          ...route.request().headers(),
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        };
+        route.continue({ headers });
+      });
 
-  // 2️⃣ Handle Shopify password page (ONCE)
-  if (password) {
-    const passwordInput = await page.$("#password");
+      try {
+        const freshUrl = `${p.url}?nocache=${Date.now()}`;
+        console.log(`[Snapshot] Navigating to: ${p.name}`);
 
-    if (passwordInput) {
-      await page.fill("#password", password);
-      await Promise.all([
-        page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: "networkidle" }),
-      ]);
-    }
-  }
+        // Use 'domcontentloaded' instead of 'networkidle' if it hangs. 
+        // Some Shopify apps keep the network busy forever (chat bots, etc.)
+        await page.goto(freshUrl, {
+          waitUntil: "networkidle",
+          timeout: 60000
+        });
 
-  // 3️⃣ Disable animations AFTER unlock
-  await page.addStyleTag({
-    content: `
-      *, *::before, *::after {
-        animation: none !important;
-        transition: none !important;
+        if (password) {
+          const passwordInput = await page.$('input[name="password"], #password');
+          if (passwordInput) {
+            await passwordInput.fill(password);
+            await Promise.all([
+              page.waitForNavigation({ waitUntil: "networkidle" }),
+              page.keyboard.press("Enter"),
+            ]);
+            // Give Shopify a moment to redirect after password
+            await page.waitForTimeout(2000);
+          }
+        }
+
+        // 4. Final "Settling" time for JS/Animations
+        await page.waitForTimeout(2000);
+
+        await page.screenshot({
+          path: path.join(outputDir, `${p.name}.png`),
+          fullPage: true,
+        });
+
+        console.log(`[Snapshot] Saved: ${p.name}`);
+      } catch (err) {
+        // Fix: Check if it's a real Error object
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[Snapshot] Failed page ${p.name}:`, errorMessage);
+      } finally {
+        await page.close();
       }
-    `,
-  });
-
-  // 4️⃣ Screenshot loop
-  for (const p of pages) {
-    await page.goto(p.url, { waitUntil: "networkidle" });
-    await page.screenshot({
-      path: path.join(outputDir, `${p.name}.png`),
-      fullPage: true,
-    });
+    }
+  } finally {
+    console.log("[Snapshot] Closing browser...");
+    await context.close().catch(() => { }); // Catch potential close errors
+    await browser.close().catch(() => { }); // Catch potential close errors
+    console.log("[Snapshot] Browser closed.");
+    // DO NOT ADD ANY RETURN STATEMENTS HERE
   }
-
-  await browser.close();
 }

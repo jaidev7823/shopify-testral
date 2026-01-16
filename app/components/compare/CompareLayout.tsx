@@ -4,7 +4,13 @@ import CompareHeader from "./CompareHeader";
 import PageList from "./PageList";
 import CompareWorkspace from "./CompareWorkspace";
 
-export default function CompareLayout({ pages, run, hasBaseline }: any) {
+export default function CompareLayout({
+    pages,
+    run,
+    hasBaseline,
+    storeId,
+    baseRunId,
+}: any) {
     const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
     const sortedPages = [...pages].sort((a, b) => {
         const aDiff = a.comparison?.isDifferent ? 1 : 0;
@@ -20,6 +26,7 @@ export default function CompareLayout({ pages, run, hasBaseline }: any) {
     }, [pages, selectedPageId]);
 
     const selectedPage = pages.find((p: any) => p.id === selectedPageId) || null;
+
     return (
         <div
             style={{
@@ -45,8 +52,12 @@ export default function CompareLayout({ pages, run, hasBaseline }: any) {
                     selectedPageId={selectedPageId}
                     onSelect={setSelectedPageId}
                 />
-
-                <CompareWorkspace selectedPage={selectedPage} />
+                <CompareWorkspace
+                    selectedPage={selectedPage}
+                    storeId={storeId}
+                    baseRunId={baseRunId}
+                    targetRunId={run.id}
+                />
             </div>
         </div>
     );

@@ -11,6 +11,27 @@ export default function PageList({
     selectedPageId: string | null,
     onSelect: (id: string) => void
 }) {
+    const getStatusBadge = (page: any) => {
+        if (!page.comparison) {
+            return <Badge size="small" tone="attention">No Baseline</Badge>;
+        }
+
+        const { approvalStatus, isDifferent } = page.comparison;
+
+        if (approvalStatus === "APPROVED") {
+            return <Badge size="small" tone="success">Approved</Badge>;
+        }
+        if (approvalStatus === "REJECTED") {
+            return <Badge size="small" tone="critical">Rejected</Badge>;
+        }
+        if (approvalStatus === "AUTO_APPROVED") {
+            return <Badge size="small" tone="info">Match</Badge>;
+        }
+        if (isDifferent) {
+            return <Badge size="small" tone="warning">Pending</Badge>;
+        }
+        return <Badge size="small" tone="success">Match</Badge>;
+    };
 
     return (
         <div
@@ -31,7 +52,6 @@ export default function PageList({
                                 key={page.id}
                                 style={{
                                     cursor: "pointer",
-                                    // Basic visual feedback for selection
                                     opacity: isSelected ? 1 : 0.7
                                 }}
                                 onClick={() => onSelect(page.id)}
@@ -46,15 +66,7 @@ export default function PageList({
                                                 <Text variant="headingSm" as="h6">
                                                     {page.pageName}
                                                 </Text>
-                                                {/* Placeholder status */}
-
-                                                <Badge
-                                                    size="small"
-                                                    tone={isDifferent ? "critical" : "success"}
-                                                >
-                                                    {isDifferent ? "Diff" : "Match"}
-                                                </Badge>
-
+                                                {getStatusBadge(page)}
                                             </InlineStack>
                                             <Text variant="bodySm" tone="subdued" as="p" truncate>
                                                 {page.pageUrl}
