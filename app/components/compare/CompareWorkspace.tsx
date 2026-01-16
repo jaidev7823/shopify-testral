@@ -26,27 +26,32 @@ export default function CompareWorkspace({
             return;
         }
 
-        // Fetch the latest comparison from the database
-        async function fetchComparison() {
-            try {
-                const response = await fetch(`/api/comparison?pageId=${selectedPage.id}`);
-                const data = await response.json();
+        // 1. First, check if the selectedPage already has a diff image in its object
+        if (selectedPage.images?.diff) {
+            setDiffImage(selectedPage.images.diff);
+            setHasDiffImage(true);
+        } else {
+            // 2. If not, fetch the latest comparison from the database
+            async function fetchComparison() {
+                try {
+                    const response = await fetch(`/api/comparison?pageId=${selectedPage.id}`);
+                    const data = await response.json();
 
-                if (data.comparison && data.comparison.diffImagePath) {
-                    setDiffImage(data.comparison.diffImagePath);
-                    setHasDiffImage(true);
-                } else {
+                    if (data.comparison && data.comparison.diffImagePath) {
+                        setDiffImage(data.comparison.diffImagePath);
+                        setHasDiffImage(true);
+                    } else {
+                        setDiffImage(null);
+                        setHasDiffImage(false);
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch comparison:", error);
                     setDiffImage(null);
                     setHasDiffImage(false);
                 }
-            } catch (error) {
-                console.error("Failed to fetch comparison:", error);
-                setDiffImage(null);
-                setHasDiffImage(false);
             }
+            fetchComparison();
         }
-
-        fetchComparison();
     }, [selectedPage]);
 
     if (!selectedPage) {
@@ -57,13 +62,14 @@ export default function CompareWorkspace({
         );
     }
 
-    const diffImage = selectedPage?.images?.diff ?? null;
+    // REMOVED: const diffImage = selectedPage?.images?.diff ?? null; 
+    // (This was the source of the error)
 
     return (
         <div
             style={{
                 display: "grid",
-                gridTemplateRows: "auto 1fr", // ✅ rows, not columns
+                gridTemplateRows: "auto 1fr",
                 height: "100%",
                 overflow: "hidden",
             }}
