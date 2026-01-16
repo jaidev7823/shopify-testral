@@ -222,7 +222,34 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             // Don't fail the whole request, but log it
         }
 
-        // 5. Mark comparison as approved
+        // 5. Revoke previous approvals for this page
+        // Find all pages with this name in this store's runs to identify relevant comparisons.
+        const samePageNamePages = await prisma.snapshotPage.findMany({
+            where: {
+                pageName: targetPage.pageName,
+                snapshotRun: {
+                    storeId: session.shop
+                }
+            },
+            select: { id: true }
+        });
+
+        const samePageIds = samePageNamePages.map(p => p.id);
+
+        if (samePageIds.length > 0) {
+            await prisma.snapshotComparison.updateMany({
+                where: {
+                    targetPageId: { in: samePageIds },
+                    approvalStatus: "APPROVED",
+                    NOT: { id: comparisonId }
+                },
+                data: {
+                    approvalStatus: "PENDING"
+                }
+            });
+        }
+
+        // 6. Mark comparison as approved
         await prisma.snapshotComparison.update({
             where: { id: comparisonId },
             data: {

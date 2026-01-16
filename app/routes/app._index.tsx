@@ -3,7 +3,7 @@ import { json, redirect } from "@remix-run/node";
 import { useFetcher, useLoaderData, useNavigate, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
-import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack } from "@shopify/polaris";
+import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack, Box } from "@shopify/polaris";
 import { prisma } from "~/utils/prisma.server";
 import { createSnapshotDir } from "~/utils/snapshot-paths.server";
 import { getStorePages } from "~/services/snapshot-logic.server";
@@ -11,7 +11,7 @@ import { takeSnapshots } from "~/services/snapshot.server";
 import { runCompareJob } from "~/services/compareJob.server";
 import path from "path";
 
-/* ---------------- LOADER & ACTION (Omitted for brevity, keep yours as is) ---------------- */
+/* ---------------- LOADER & ACTION ---------------- */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
@@ -33,7 +33,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { pages: { select: { id: true } } },
   });
 
-  return json({ runs: JSON.parse(JSON.stringify(runs)), status: null, errorMessage: null });
+  const baselines = await prisma.pageBaseline.findMany({
+    where: { storeId: shop },
+    orderBy: { pageName: "asc" },
+  });
+
+  return json({
+    runs: JSON.parse(JSON.stringify(runs)),
+    baselines: JSON.parse(JSON.stringify(baselines)),
+    status: null,
+    errorMessage: null
+  });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -43,25 +53,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (actionType === "run-comparison") {
     const runId = formData.get("runId") as string;
-
-    // With Gold Master architecture, we don't need a specific "Anchor".
-    // We just trigger the comparison against available baselines.
-
     await prisma.snapshotRun.update({
       where: { id: runId },
       data: { compareStatus: "IN_PROGRESS" },
     });
-
     runCompareJob(session.shop, "legacy-placeholder", runId).catch(async () => {
       await prisma.snapshotRun.update({ where: { id: runId }, data: { compareStatus: "FAILED" } });
     });
-
     return redirect(`/app/compare/${runId}`);
   }
 
   const categories = JSON.parse(String(formData.get("categories") || "[]"));
   if (!categories.length) return { ok: false, error: "Select at least one category" };
-
   const pages = await getStorePages(admin, categories, `https://${session.shop}`);
   if (!pages.length) return { ok: false, error: "No pages found" };
 
@@ -71,7 +74,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   const publicPath = path.relative(path.join(process.cwd(), "public"), outputDir).replace(/\\/g, "/");
-
   await prisma.snapshotPage.createMany({
     data: pages.map(p => ({
       snapshotRunId: run.id,
@@ -91,88 +93,65 @@ const StatusBadge = ({ status }: { status: string }) => {
   const config: Record<string, { tone: any; label: string }> = {
     APPROVED: { tone: "success", label: "Approved" },
     COMPLETED: { tone: "info", label: "Completed" },
-    PROCESSING: { tone: "warning", label: "You can refresh the page to see the status" },
+    PROCESSING: { tone: "warning", label: "Processing" },
     FAILED: { tone: "critical", label: "Failed" },
   };
-  const { tone, label } = config[status] || { tone: "warning", label: "You can refresh the page to see the status" };
+  const { tone, label } = config[status] || { tone: "warning", label: "Processing" };
   return <Badge tone={tone}>{label}</Badge>;
 };
 
 export default function SnapshotPage() {
-  const navigate = useNavigate();
-  const { runs: initialRuns = [] } = useLoaderData<typeof loader>() as { runs: any[] };
-  const revalidator = useRevalidator(); // Initialize revalidator
-  const [runs, setRuns] = useState(initialRuns);
+  const { runs: initialRuns = [], baselines = [] } = useLoaderData<typeof loader>() as { runs: any[], baselines: any[] };
+  const revalidator = useRevalidator();
+  const [runs, setRuns] = useState<any[]>(initialRuns);
   const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [pollingId, setPollingId] = useState<string | null>(null);
 
+  // Gallery state
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [selectedBaselineId, setSelectedBaselineId] = useState<string | null>(null);
+
   const fetcher = useFetcher<typeof action>();
   const compareFetcher = useFetcher();
   const statusFetcher = useFetcher();
 
-  // 1. Sync local state with loader data (Remix Revalidation)
-  useEffect(() => {
-    setRuns(initialRuns);
-  }, [initialRuns]);
+  useEffect(() => { setRuns(initialRuns); }, [initialRuns]);
 
-  // 2. Format times
   useEffect(() => {
     const map: Record<string, string> = {};
-    for (const run of runs) {
-      map[run.id] = new Date(run.createdAt).toLocaleString();
-    }
+    for (const run of runs) { map[run.id] = new Date(run.createdAt).toLocaleString(); }
     setLocalTimes(map);
   }, [runs]);
 
-  // 3. Start polling when a new run is created
   useEffect(() => {
     const data = fetcher.data as any;
-    // When action succeeds, set the polling ID
     if (fetcher.state === "idle" && data?.ok && data?.runId) {
       setPollingId(data.runId);
-
-      // OPTIONAL: Manually trigger a re-fetch of the main list 
-      // to ensure the new "Pending" run appears in the table immediately
       statusFetcher.load("?");
     }
   }, [fetcher.state, fetcher.data]);
 
-  // 4. Handle Polling Interval
   useEffect(() => {
     if (!pollingId) return;
-
     const interval = setInterval(() => {
       const params = new URLSearchParams(window.location.search);
-      const shop = params.get("shop");
-      // Use index 0 to target the loader
-      statusFetcher.load(`?runId=${pollingId}&shop=${shop}`);
+      statusFetcher.load(`?runId=${pollingId}&shop=${params.get("shop")}`);
     }, 3000);
-
     return () => clearInterval(interval);
   }, [pollingId]);
 
-  // 5. THE FIX: Consolidated Status Update Logic
   useEffect(() => {
     const data = statusFetcher.data as any;
     if (!data || !pollingId) return;
-
     if (data.status) {
-      setRuns((prev) =>
-        prev.map((r) => (r.id === pollingId ? { ...r, status: data.status } : r))
+      setRuns((prev: any[]) =>
+        prev.map((r: any) => (r.id === pollingId ? { ...r, status: data.status } : r))
       );
-
-      if (data.status === "FAILED") {
-        setPollingId(null);
-        alert(`Snapshot failed: ${data.errorMessage || "Unknown error"}`);
-      }
-
-      // Stop polling when finished
+      if (data.status === "FAILED") { setPollingId(null); }
       if (["COMPLETED", "APPROVED"].includes(data.status)) {
-        console.log("revalidating");
         setPollingId(null);
-
         revalidator.revalidate();
       }
     }
@@ -183,8 +162,30 @@ export default function SnapshotPage() {
     setModalOpen(false);
   };
 
+  useEffect(() => {
+    if (galleryOpen && baselines.length > 0 && !selectedBaselineId) {
+      setSelectedBaselineId(baselines[0].id);
+    }
+  }, [galleryOpen, baselines]);
+
+  const selectedBaseline = baselines.find(b => b.id === selectedBaselineId);
+
   return (
     <Page title="Visual Snapshots" primaryAction={{ content: "Take Snapshots", onAction: () => setModalOpen(true) }}>
+      <div style={{ marginBottom: "20px" }}>
+        <Card>
+          <BlockStack gap="200">
+            <Text as="h2" variant="headingMd">Approved Baselines (Gold Masters)</Text>
+            <Text as="p" variant="bodyMd">
+              {baselines.length} pages are currently approved as the Gold Master standard.
+            </Text>
+            <InlineStack>
+              <Button onClick={() => setGalleryOpen(true)}>View Approved Images</Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      </div>
+
       <Card>
         <IndexTable
           resourceName={{ singular: "run", plural: "runs" }}
@@ -194,14 +195,8 @@ export default function SnapshotPage() {
         >
           {runs.map((run: any, i: number) => (
             <IndexTable.Row id={run.id} key={run.id} position={i}>
-              <IndexTable.Cell>
-                <Text as="span" variant="bodyMd" fontWeight="bold">
-                  {localTimes[run.id] ?? `${run.createdAt.replace("T", " ").slice(0, 16)} UTC`}
-                </Text>
-              </IndexTable.Cell>
-              <IndexTable.Cell>
-                <StatusBadge status={run.status} />
-              </IndexTable.Cell>
+              <IndexTable.Cell><Text as="span" variant="bodyMd" fontWeight="bold">{localTimes[run.id] ?? "Pending"}</Text></IndexTable.Cell>
+              <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
                 <compareFetcher.Form method="post">
@@ -216,20 +211,62 @@ export default function SnapshotPage() {
       </Card>
 
       <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Select Categories"
-        primaryAction={{ content: "Start", onAction: handleStartCapture, loading: fetcher.state === "submitting" }}
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        title="Approved Gold Masters"
+        size="fullScreen"
       >
+        <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", height: "calc(100vh - 150px)", overflow: "hidden" }}>
+          {/* Sidebar */}
+          <div style={{ borderRight: "1px solid var(--p-color-border-secondary)", overflowY: "auto", background: "var(--p-color-bg-surface-secondary)" }}>
+            <Box padding="200">
+              <BlockStack gap="100">
+                {baselines.map((base) => {
+                  const isSelected = selectedBaselineId === base.id;
+                  return (
+                    <div key={base.id} onClick={() => setSelectedBaselineId(base.id)} style={{ cursor: "pointer" }}>
+                      <div style={{ border: isSelected ? "2px solid var(--p-color-border-focus)" : "2px solid transparent", borderRadius: "8px" }}>
+                        <Card>
+                          <BlockStack gap="100">
+                            <Text variant="headingSm" as="h6">{base.pageName}</Text>
+                            <Text variant="bodySm" tone="subdued" as="p" truncate>{base.pageUrl}</Text>
+                          </BlockStack>
+                        </Card>
+                      </div>
+                    </div>
+                  );
+                })}
+              </BlockStack>
+            </Box>
+          </div>
+
+          {/* Main Workspace */}
+          <div style={{ padding: "24px", overflowY: "auto", background: "#f1f1f1" }}>
+            {selectedBaseline ? (
+              <Card>
+                <BlockStack gap="400">
+                  <InlineStack align="space-between">
+                    <Text variant="headingMd" as="h4">{selectedBaseline.pageName}</Text>
+                    {/* FIXED: Added 'as="p"' here */}
+                    <Text variant="bodySm" tone="subdued" as="p">Last Updated: {new Date(selectedBaseline.updatedAt).toLocaleDateString()}</Text>
+                  </InlineStack>
+                  <div style={{ border: "1px solid #dfe3e8", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
+                    <img src={selectedBaseline.imagePath} alt={selectedBaseline.pageName} style={{ width: "100%", display: "block" }} />
+                  </div>
+                </BlockStack>
+              </Card>
+            ) : (
+              <Box padding="1000"><Text as="p" alignment="center">Select a page from the list to view the approved Gold Master image.</Text></Box>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Select Categories" primaryAction={{ content: "Start", onAction: handleStartCapture, loading: fetcher.state === "submitting" }}>
         <Modal.Section>
           <BlockStack gap="200">
             {["homepage", "products", "collections", "pages"].map((cat) => (
-              <Checkbox
-                key={cat}
-                label={cat.charAt(0).toUpperCase() + cat.slice(1)}
-                checked={categories.includes(cat)}
-                onChange={() => setCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])}
-              />
+              <Checkbox key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)} checked={categories.includes(cat)} onChange={() => setCategories(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])} />
             ))}
           </BlockStack>
         </Modal.Section>
@@ -241,70 +278,32 @@ export default function SnapshotPage() {
 /* ---------------- BACKGROUND PROCESS ---------------- */
 async function backgroundProcess(runId: string, pages: any[], outputDir: string, shop: string) {
   try {
-    await prisma.snapshotRun.update({
-      where: { id: runId },
-      data: { status: "PROCESSING" }
-    });
-
+    await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "PROCESSING" } });
     await takeSnapshots({ pages, outputDir, password: "123" });
-
-    // Check if we have ANY baselines for this store.
-    // If count is 0, this is effectively the "First Run" (or a clean start).
-    const baselineCount = await prisma.pageBaseline.count({
-      where: { storeId: shop }
-    });
+    const baselineCount = await prisma.pageBaseline.count({ where: { storeId: shop } });
 
     if (baselineCount === 0) {
-      console.log("No baselines found. Initializing Gold Masters from this run...");
-
-      const fs = (await import("fs/promises")).default; // Dynamic import if needed, or rely on top level
-
-      // Get all pages for this run
-      const runPages = await prisma.snapshotPage.findMany({
-        where: { snapshotRunId: runId }
-      });
-
+      const fs = (await import("fs/promises")).default;
+      const runPages = await prisma.snapshotPage.findMany({ where: { snapshotRunId: runId } });
       for (const page of runPages) {
         const baselineDir = path.join(process.cwd(), "public", "baselines", shop);
         const baselineFilename = `${page.pageName}.png`;
         const baselinePath = path.join(baselineDir, baselineFilename);
-        const baselineWebPath = `/baselines/${shop}/${baselineFilename}`;
         const sourcePath = path.join(process.cwd(), "public", page.imagePath);
-
         try {
           await fs.mkdir(baselineDir, { recursive: true });
           await fs.copyFile(sourcePath, baselinePath);
-
           await prisma.pageBaseline.create({
-            data: {
-              storeId: shop,
-              pageName: page.pageName,
-              pageUrl: page.pageUrl,
-              snapshotPageId: page.id,
-              imagePath: baselineWebPath
-            }
+            data: { storeId: shop, pageName: page.pageName, pageUrl: page.pageUrl, snapshotPageId: page.id, imagePath: `/baselines/${shop}/${baselineFilename}` }
           });
-        } catch (err) {
-          console.error(`Failed to create baseline for ${page.pageName}:`, err);
-        }
+        } catch (err) { console.error(err); }
       }
-
-      await prisma.snapshotRun.update({
-        where: { id: runId },
-        data: { status: "APPROVED" }
-      });
+      await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" } });
     } else {
-      await prisma.snapshotRun.update({
-        where: { id: runId },
-        data: { status: "COMPLETED" }
-      });
+      await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "COMPLETED" } });
     }
   } catch (e) {
-    console.error(`[Background] Run ${runId} failed:`, e);
     const errorMsg = e instanceof Error ? e.message : String(e);
-    await prisma.snapshotRun.update({
-      where: { id: runId },
-      data: { status: "FAILED", errorMessage: errorMsg }
-    }).catch(console.error);
+    await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "FAILED", errorMessage: errorMsg } }).catch(console.error);
   }
 }
