@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { json, redirect } from "@remix-run/node";
-import { useFetcher, useLoaderData, useNavigate, useRevalidator } from "react-router";
+import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import { Page, Card, Button, Modal, BlockStack, Checkbox, Text, Badge, IndexTable, InlineStack, Box } from "@shopify/polaris";
@@ -41,8 +41,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return json({
     runs: JSON.parse(JSON.stringify(runs)),
     baselines: JSON.parse(JSON.stringify(baselines)),
-    status: null,
-    errorMessage: null
   });
 };
 
@@ -91,10 +89,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 const StatusBadge = ({ status }: { status: string }) => {
   const config: Record<string, { tone: any; label: string }> = {
-    APPROVED: { tone: "success", label: "Completed" }, // Changed from "Approved" to "Completed"
+    APPROVED: { tone: "success", label: "Completed" },
     COMPLETED: { tone: "success", label: "Completed" },
-    PROCESSING: { tone: "warning", label: "Refresh to see update" }, // Updated label
-    PENDING: { tone: "warning", label: "Refresh to see update" },    // Updated label
+    PROCESSING: { tone: "warning", label: "Refresh to see update" },
+    PENDING: { tone: "warning", label: "Refresh to see update" },
     FAILED: { tone: "critical", label: "Failed" },
   };
   const { tone, label } = config[status] || { tone: "warning", label: "Refresh to see update" };
@@ -102,10 +100,12 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function SnapshotPage() {
-  const { runs: initialRuns = [], baselines = [] } = useLoaderData<typeof loader>() as { runs: any[], baselines: any[] };
+  const { runs: initialRuns = [], baselines = [] } = useLoaderData<typeof loader>() as any;
   const revalidator = useRevalidator();
+
+  // HYDRATION FIX: State to track if component is mounted
+  const [isMounted, setIsMounted] = useState(false);
   const [runs, setRuns] = useState<any[]>(initialRuns);
-  const [localTimes, setLocalTimes] = useState<Record<string, string>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [pollingId, setPollingId] = useState<string | null>(null);
@@ -117,27 +117,21 @@ export default function SnapshotPage() {
   const compareFetcher = useFetcher();
   const statusFetcher = useFetcher();
 
+  useEffect(() => { setIsMounted(true); }, []); // Set mounted to true once browser loads
   useEffect(() => { setRuns(initialRuns); }, [initialRuns]);
 
-  useEffect(() => {
-    const map: Record<string, string> = {};
-    for (const run of runs) { map[run.id] = new Date(run.createdAt).toLocaleString(); }
-    setLocalTimes(map);
-  }, [runs]);
-
+  // Polling logic
   useEffect(() => {
     const data = fetcher.data as any;
     if (fetcher.state === "idle" && data?.ok && data?.runId) {
       setPollingId(data.runId);
-      statusFetcher.load("?");
     }
   }, [fetcher.state, fetcher.data]);
 
   useEffect(() => {
     if (!pollingId) return;
     const interval = setInterval(() => {
-      const params = new URLSearchParams(window.location.search);
-      statusFetcher.load(`?runId=${pollingId}&shop=${params.get("shop")}`);
+      statusFetcher.load(`?runId=${pollingId}`);
     }, 3000);
     return () => clearInterval(interval);
   }, [pollingId]);
@@ -149,26 +143,19 @@ export default function SnapshotPage() {
       setRuns((prev: any[]) =>
         prev.map((r: any) => (r.id === pollingId ? { ...r, status: data.status } : r))
       );
-      if (data.status === "FAILED") { setPollingId(null); }
-      if (["COMPLETED", "APPROVED"].includes(data.status)) {
+      if (["COMPLETED", "APPROVED", "FAILED"].includes(data.status)) {
         setPollingId(null);
         revalidator.revalidate();
       }
     }
-  }, [statusFetcher.data, pollingId, revalidator]);
+  }, [statusFetcher.data, pollingId]);
 
   const handleStartCapture = () => {
     fetcher.submit({ categories: JSON.stringify(categories) }, { method: "POST" });
     setModalOpen(false);
   };
 
-  useEffect(() => {
-    if (galleryOpen && baselines.length > 0 && !selectedBaselineId) {
-      setSelectedBaselineId(baselines[0].id);
-    }
-  }, [galleryOpen, baselines]);
-
-  const selectedBaseline = baselines.find(b => b.id === selectedBaselineId);
+  const selectedBaseline = baselines.find((b: any) => b.id === (selectedBaselineId || baselines[0]?.id));
 
   return (
     <Page title="Visual Snapshots" primaryAction={{ content: "Take Snapshots", onAction: () => setModalOpen(true) }}>
@@ -195,11 +182,15 @@ export default function SnapshotPage() {
         >
           {runs.map((run: any, i: number) => (
             <IndexTable.Row id={run.id} key={run.id} position={i}>
-              <IndexTable.Cell><Text as="span" variant="bodyMd" fontWeight="bold">{localTimes[run.id] ?? "Pending"}</Text></IndexTable.Cell>
+              <IndexTable.Cell>
+                <Text as="span" variant="bodyMd" fontWeight="bold">
+                  {/* Hydration fix: Only show local string on client */}
+                  {isMounted ? new Date(run.createdAt).toLocaleString() : "Loading..."}
+                </Text>
+              </IndexTable.Cell>
               <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
-                {/* Only allow comparison if the run is finished */}
                 {["COMPLETED", "APPROVED"].includes(run.status) && (
                   <compareFetcher.Form method="post">
                     <input type="hidden" name="actionType" value="run-comparison" />
@@ -213,7 +204,7 @@ export default function SnapshotPage() {
         </IndexTable>
       </Card>
 
-      {/* Main Model for Approval / Gold Masters - Kept Intact */}
+      {/* Main Approval Modal - Logic kept exactly as is */}
       <Modal
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
@@ -224,21 +215,18 @@ export default function SnapshotPage() {
           <div style={{ borderRight: "1px solid var(--p-color-border-secondary)", overflowY: "auto", background: "var(--p-color-bg-surface-secondary)" }}>
             <Box padding="200">
               <BlockStack gap="100">
-                {baselines.map((base) => {
-                  const isSelected = selectedBaselineId === base.id;
-                  return (
-                    <div key={base.id} onClick={() => setSelectedBaselineId(base.id)} style={{ cursor: "pointer" }}>
-                      <div style={{ border: isSelected ? "2px solid var(--p-color-border-focus)" : "2px solid transparent", borderRadius: "8px" }}>
-                        <Card>
-                          <BlockStack gap="100">
-                            <Text variant="headingSm" as="h6">{base.pageName}</Text>
-                            <Text variant="bodySm" tone="subdued" as="p" truncate>{base.pageUrl}</Text>
-                          </BlockStack>
-                        </Card>
-                      </div>
+                {baselines.map((base: any) => (
+                  <div key={base.id} onClick={() => setSelectedBaselineId(base.id)} style={{ cursor: "pointer" }}>
+                    <div style={{ border: (selectedBaselineId || baselines[0]?.id) === base.id ? "2px solid var(--p-color-border-focus)" : "2px solid transparent", borderRadius: "8px" }}>
+                      <Card>
+                        <BlockStack gap="100">
+                          <Text variant="headingSm" as="h6">{base.pageName}</Text>
+                          <Text variant="bodySm" tone="subdued" as="p" truncate>{base.pageUrl}</Text>
+                        </BlockStack>
+                      </Card>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </BlockStack>
             </Box>
           </div>
@@ -249,7 +237,9 @@ export default function SnapshotPage() {
                 <BlockStack gap="400">
                   <InlineStack align="space-between">
                     <Text variant="headingMd" as="h4">{selectedBaseline.pageName}</Text>
-                    <Text variant="bodySm" tone="subdued" as="p">Last Updated: {new Date(selectedBaseline.updatedAt).toLocaleDateString()}</Text>
+                    <Text variant="bodySm" tone="subdued" as="p">
+                      Last Updated: {isMounted ? new Date(selectedBaseline.updatedAt).toLocaleDateString() : ""}
+                    </Text>
                   </InlineStack>
                   <div style={{ border: "1px solid #dfe3e8", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
                     <img src={selectedBaseline.imagePath} alt={selectedBaseline.pageName} style={{ width: "100%", display: "block" }} />
@@ -257,7 +247,7 @@ export default function SnapshotPage() {
                 </BlockStack>
               </Card>
             ) : (
-              <Box padding="1000"><Text as="p" alignment="center">Select a page from the list to view the approved Gold Master image.</Text></Box>
+              <Box padding="1000"><Text as="p" alignment="center">Select a page to view the approved Gold Master image.</Text></Box>
             )}
           </div>
         </div>
@@ -299,7 +289,6 @@ async function backgroundProcess(runId: string, pages: any[], outputDir: string,
           });
         } catch (err) { console.error(err); }
       }
-      // Note: We keep "APPROVED" status in DB for logic, but UI shows "Completed"
       await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "APPROVED" } });
     } else {
       await prisma.snapshotRun.update({ where: { id: runId }, data: { status: "COMPLETED" } });

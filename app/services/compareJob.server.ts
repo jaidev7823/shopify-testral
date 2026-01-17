@@ -55,10 +55,55 @@ export async function runCompareJob(
             basePageId = baseline.snapshotPageId;
             effectiveBaseRunId = baseRunId; // Keep legacy run ID for reference, or could be empty
         } else {
-            // No baseline found for this page.
-            // In strict Gold Master mode, we skip comparison or mark it as "No Baseline"
-            console.log(`No baseline found for ${targetPage.pageName}. Skipping comparison.`);
-            continue;
+            // No baseline found -> Auto-approve this new page as the baseline
+            console.log(`No baseline found for ${targetPage.pageName}. Auto-approving and setting baseline.`);
+
+            const baselineDir = path.join(process.cwd(), "public", "baselines", storeId);
+            const baselineFilename = `${targetPage.pageName}.png`;
+            const baselineFsPathNew = path.join(baselineDir, baselineFilename);
+            const currentFsPath = path.join(process.cwd(), "public", targetPage.imagePath);
+
+            try {
+                // 1. Copy image to baselines folder
+                await fs.mkdir(baselineDir, { recursive: true });
+                await fs.copyFile(currentFsPath, baselineFsPathNew);
+
+                // 2. Create PageBaseline record
+                const newBaseline = await prisma.pageBaseline.create({
+                    data: {
+                        storeId,
+                        pageName: targetPage.pageName,
+                        pageUrl: targetPage.pageUrl,
+                        snapshotPageId: targetPage.id,
+                        imagePath: `/baselines/${storeId}/${baselineFilename}`,
+                    }
+                });
+
+                // 3. Create SnapshotComparison record (Auto-Approved)
+                // Since this IS the baseline, diff is 0 and it's not different from itself
+                await prisma.snapshotComparison.create({
+                    data: {
+                        storeId,
+                        baseRunId: targetRunId, // It is its own baseline source
+                        basePageId: targetPage.id,
+                        targetRunId,
+                        targetPageId: targetPage.id,
+                        isDifferent: false,
+                        diffScore: 0,
+                        diffImagePath: null,
+                        approvalStatus: "AUTO_APPROVED",
+                    },
+                });
+
+                console.log(`Auto-approved new page: ${targetPage.pageName}`);
+
+                // Continue loop, skipping the standard compareImages call
+                continue;
+
+            } catch (err) {
+                console.error(`Error auto-approving page ${targetPage.pageName}:`, err);
+                continue; // Skip this page if auto-approve fails
+            }
         }
 
         // Filesystem path (where to write the file)
