@@ -63,7 +63,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react"],
-    exclude: ["sharp", "resemblejs"],
+    exclude: ["sharp", "resemblejs","playwright-core", "chromium-bidi"],
   },
   ssr: {
     external: ["sharp", "resemblejs"],

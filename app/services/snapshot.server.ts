@@ -19,7 +19,8 @@ export async function takeSnapshots({
       '--disk-cache-size=0',
       '--disable-service-workers-self-verification',
       '--disable-site-isolation-trials',
-    ]
+    ],
+    executablePath: '/usr/bin/chromium'
   });
 
   // 2. Create context with "Real User" characteristics

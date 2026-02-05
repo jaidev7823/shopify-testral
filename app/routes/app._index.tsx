@@ -141,7 +141,7 @@ export default function SnapshotPage() {
     if (!data || !pollingId) return;
     if (data.status) {
       setRuns((prev: any[]) =>
-        prev.map((r: any) => (r.id === pollingId ? { ...r, status: data.status } : r))
+        prev.map((r: any) => (r.id === pollingId ? { ...r, status: data.status, errorMessage: data.errorMessage } : r))
       );
       if (["COMPLETED", "APPROVED", "FAILED"].includes(data.status)) {
         setPollingId(null);
@@ -188,7 +188,14 @@ export default function SnapshotPage() {
                   {isMounted ? new Date(run.createdAt).toLocaleString() : "Loading..."}
                 </Text>
               </IndexTable.Cell>
-              <IndexTable.Cell><StatusBadge status={run.status} /></IndexTable.Cell>
+              <IndexTable.Cell>
+                <StatusBadge status={run.status} />
+                {/* {run.status === 'FAILED' && run.errorMessage && (
+                  <Box paddingTop="100">
+                    <Text tone="critical" variant="bodySm">{run.errorMessage}</Text>
+                  </Box>
+                )} */}
+              </IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
                 {["COMPLETED", "APPROVED"].includes(run.status) && (
