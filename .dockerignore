@@ -1,3 +1,6 @@
-.cache
-build
 node_modules
+.git
+.env
+build
+prisma/*.db
+prisma/*.db-journal
