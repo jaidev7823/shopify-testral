@@ -11,5 +11,10 @@ services:
       - DATABASE_URL=file:/mnt/data/dev.db
       - NODE_ENV=development
       # Add your Shopify keys here for local testing
+      # Shopify Credentials
+      - SHOPIFY_API_KEY=da279a758c5dc828269a5d77b585be37
+      - SHOPIFY_API_SECRET=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
+      - SHOPIFY_APP_URL=https://unrequited-tierra-nondiverging.ngrok-free.dev
+      - SCOPES=read_products,write_products,read_content,write_content
     env_file:
       - .env
