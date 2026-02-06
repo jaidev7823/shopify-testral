@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # This simulates the AWS EFS mount. 
+      # It maps a local folder named 'data' to the folder in our container.
+      - ./data:/mnt/data
+    environment:
+      - DATABASE_URL=file:/mnt/data/dev.db
+      - NODE_ENV=development
+      # Add your Shopify keys here for local testing
+      - SHOPIFY_API_KEY=your_key_here
