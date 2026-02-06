@@ -11,4 +11,5 @@ services:
       - DATABASE_URL=file:/mnt/data/dev.db
       - NODE_ENV=development
       # Add your Shopify keys here for local testing
-      - SHOPIFY_API_KEY=your_key_here
+    env_file:
+      - .env
