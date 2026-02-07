@@ -1,8 +1,17 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-
+import { json } from "@remix-run/node";
+import { useLoaderData } from "react-router";
 import "@shopify/polaris/build/esm/styles.css";
-
+export async function loader() {
+  return json({
+    ENV: {
+      PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL ?? "",
+    },
+  });
+}
 export default function App() {
+  const { ENV } = useLoaderData<typeof loader>();
+
   return (
     <html lang="en">
       <head>

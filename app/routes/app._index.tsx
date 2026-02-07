@@ -190,11 +190,11 @@ export default function SnapshotPage() {
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <StatusBadge status={run.status} />
-                {/* {run.status === 'FAILED' && run.errorMessage && (
+                {run.status === 'FAILED' && run.errorMessage && (
                   <Box paddingTop="100">
                     <Text tone="critical" variant="bodySm">{run.errorMessage}</Text>
                   </Box>
-                )} */}
+                )}
               </IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>
@@ -249,7 +249,10 @@ export default function SnapshotPage() {
                     </Text>
                   </InlineStack>
                   <div style={{ border: "1px solid #dfe3e8", borderRadius: "8px", overflow: "hidden", background: "#fff" }}>
-                    <img src={selectedBaseline.imagePath} alt={selectedBaseline.pageName} style={{ width: "100%", display: "block" }} />
+                    <img
+                      src={`${selectedBaseline.imagePath}?v=${new Date(selectedBaseline.updatedAt).getTime()}`}
+                      alt={selectedBaseline.pageName} style={{ width: "100%", display: "block" }}
+                    />
                   </div>
                 </BlockStack>
               </Card>

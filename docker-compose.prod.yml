@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/mnt/data   # EFS equivalent
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/mnt/data/prod.db
+    env_file:
+      - .env
