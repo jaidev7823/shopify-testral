@@ -20,6 +20,6 @@ jobs:
       - name: Build production Docker image
         run: |
           docker build \
-            -f Dockerfile.prod \
-            -t shopify-app-prod:ci \
+            -f Dockerfile \
+            -t shopify-app:ci \
             .
