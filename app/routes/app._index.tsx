@@ -190,11 +190,11 @@ export default function SnapshotPage() {
               </IndexTable.Cell>
               <IndexTable.Cell>
                 <StatusBadge status={run.status} />
-                {run.status === 'FAILED' && run.errorMessage && (
+                {/* {run.status === 'FAILED' && run.errorMessage && (
                   <Box paddingTop="100">
                     <Text tone="critical" variant="bodySm">{run.errorMessage}</Text>
                   </Box>
-                )}
+                )} */}
               </IndexTable.Cell>
               <IndexTable.Cell>{run.pages?.length || 0} Pages</IndexTable.Cell>
               <IndexTable.Cell>

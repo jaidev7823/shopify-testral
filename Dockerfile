@@ -39,8 +39,11 @@ RUN apt-get update -y && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
+
 WORKDIR /app
 ENV NODE_ENV=production
+
+RUN npx playwright install --with-deps chromium
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
