@@ -1,11 +1,14 @@
 name: Deploy
 
 on:
-  push:
-    branches: ["main"]
+  workflow_run:
+    workflows: ["Build & Push"]   # must match CI name exactly
+    types:
+      - completed
 
 jobs:
   deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -15,7 +18,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_PASSPHRASE }}   # ← ADD THIS
+          passphrase: ${{ secrets.SERVER_PASSPHRASE }}
           script: |
             docker pull ${{ secrets.DOCKER_USERNAME }}/shopify-app:latest
 
