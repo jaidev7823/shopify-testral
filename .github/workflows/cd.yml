@@ -1,26 +1,28 @@
-name: CD Deploy
+name: Deploy
 
 on:
-  workflow_run:
-    workflows: ["Build Images"]
-    types:
-      - completed
+  push:
+    branches: ["main"]
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to server via SSH
+      - name: SSH Deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_PASSPHRASE }}
           script: |
-            cd /opt/shopify-testral
-            git pull origin main
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker pull ${{ secrets.DOCKER_USERNAME }}/shopify-app:latest
+
+            docker stop shopify-app || true
+            docker rm shopify-app || true
+
+            docker run -d \
+              --name shopify-app \
+              -p 3000:3000 \
+              --env-file /opt/shopify-testral/.env \
+              ${{ secrets.DOCKER_USERNAME }}/shopify-app:latest
