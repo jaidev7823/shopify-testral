@@ -11,6 +11,7 @@ RUN npm ci
 COPY . .
 
 RUN npx prisma generate
+RUN npx playwright install chromium
 RUN npm run build
 
 # ---------- Runner ----------
