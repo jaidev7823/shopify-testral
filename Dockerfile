@@ -41,7 +41,4 @@ COPY --from=builder /root/.cache/ms-playwright /root/.cache/ms-playwright
 EXPOSE 3000
 
 # TEMP: auto-detect correct entry (prevents crash)
-CMD ["sh", "-c", "\
-  npx prisma db push && \
-  (node build/index.js || node build/server/index.js || node build/main.js) \
-"]
+CMD ["sh", "-c", "npx prisma db push && node build/server/index.js"]
