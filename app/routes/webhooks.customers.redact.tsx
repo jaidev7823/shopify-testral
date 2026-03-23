@@ -1,3 +1,4 @@
+// /home/jaidev/work/projects/shopify-testral/app/routes/webhooks.customers.redact.tsx
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
