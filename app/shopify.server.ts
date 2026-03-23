@@ -35,7 +35,11 @@ const shopify = shopifyApp({
       callbackUrl: "/webhooks/shop/redact",
     },
   },
-
+hooks: {
+  afterAuth: async ({ session }) => {
+    await shopify.registerWebhooks({ session });
+  },
+},
   future: {
     expiringOfflineAccessTokens: true,
   },
