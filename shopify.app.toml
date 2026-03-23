@@ -1,0 +1,26 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "7913ffd290721630eb9483c4e3502e10"
+name = "Testral: Visual QA & Regressio"
+application_url = "https://testral.moggerman.com"
+embedded = true
+
+[webhooks]
+api_version = "2024-07"
+
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "https://testral.moggerman.com/api/webhooks"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products,write_products,read_content,write_content"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ "https://testral.moggerman.com/auth/callback" ]
