@@ -25,6 +25,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
+# ✅ install browser HERE (correct)
+RUN npx playwright install chromium
+
 EXPOSE 3000
 
 CMD ["sh", "-c", "npx prisma db push && npm start"]
