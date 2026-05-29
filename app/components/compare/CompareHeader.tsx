@@ -20,6 +20,7 @@ export default function CompareHeader({ run, hasBaseline }: any) {
                     Snapshot Compare
                 </Text>
 
+
                 <InlineStack gap="300" blockAlign="center">
                     <Badge tone={hasBaseline ? "success" : "critical"}>
                         {hasBaseline ? "Baseline ready" : "No baseline"}
